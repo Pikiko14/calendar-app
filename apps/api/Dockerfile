@@ -1,13 +1,13 @@
+# Build context = raíz del monorepo (Railway: Dockerfile path = apps/api/Dockerfile)
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-# npm ci falla si el lock está desfasado (@emnapi / optional deps); install es más robusto en Railway
+COPY apps/api/package.json apps/api/package-lock.json* ./
 RUN npm install --no-audit --no-fund
 
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/api/ ./
 RUN npx prisma generate && npm run build
 
 FROM node:20-alpine AS runner

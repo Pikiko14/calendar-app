@@ -1,10 +1,12 @@
+# Build context = raíz del monorepo (Railway: Dockerfile path = apps/web/Dockerfile)
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
-COPY . .
 
-# Vite hornea estas vars en el build — deben existir en Railway (Variables / Build Args)
+COPY apps/web/package.json apps/web/package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+COPY apps/web/ ./
+
 ARG VITE_API_URL=https://api-production-144b.up.railway.app/api/v1
 ARG VITE_APP_URL=https://localhost
 ENV VITE_API_URL=$VITE_API_URL
@@ -13,7 +15,6 @@ ENV VITE_APP_URL=$VITE_APP_URL
 RUN npm run build
 
 FROM nginx:1.27-alpine
-# Config SPA embebida (no depende de que nginx.conf esté en el repo/contexto)
 RUN printf '%s\n' \
   'server {' \
   '  listen 80;' \

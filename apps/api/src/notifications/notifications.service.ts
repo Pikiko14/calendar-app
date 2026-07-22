@@ -4,6 +4,7 @@ import {
   AppointmentStatus,
   NotificationChannel,
   NotificationStatus,
+  Prisma,
 } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,7 +32,7 @@ export class NotificationsService {
     to: string,
     body: string,
     subject?: string,
-    metadata?: Record<string, unknown>,
+    metadata?: Prisma.InputJsonValue,
   ) {
     const row = await this.prisma.notification.create({
       data: {
@@ -56,14 +57,15 @@ export class NotificationsService {
         this.logger.warn(
           `WhatsApp no enviado a ${to}: ${e instanceof Error ? e.message : e}`,
         );
+        const failedMeta = {
+          ...((metadata as Record<string, unknown> | undefined) || {}),
+          error: e instanceof Error ? e.message : String(e),
+        } as Prisma.InputJsonValue;
         return this.prisma.notification.update({
           where: { id: row.id },
           data: {
             status: NotificationStatus.FAILED,
-            metadata: {
-              ...(metadata || {}),
-              error: e instanceof Error ? e.message : String(e),
-            },
+            metadata: failedMeta,
           },
         });
       }

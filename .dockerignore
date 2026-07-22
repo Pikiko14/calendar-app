@@ -1,0 +1,14 @@
+# Contexto de build = raíz del repo (usado por Railway)
+.git
+.gitignore
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+bot_sessions
+uploads
+*.md
+apps/web/node_modules
+apps/api/node_modules

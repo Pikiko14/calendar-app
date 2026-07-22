@@ -3,5 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# Imagen nginx: no usar npm start
+startCommand = "nginx -g 'daemon off;'"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

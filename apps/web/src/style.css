@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color: #0b1f1c;
+    background: #f3f7f5;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    --brand-50: 240 253 250;
+    --brand-100: 204 251 241;
+    --brand-200: 153 246 228;
+    --brand-300: 94 234 212;
+    --brand-400: 45 212 191;
+    --brand-500: 20 184 166;
+    --brand-600: 13 148 136;
+    --brand-700: 15 118 110;
+    --brand-800: 17 94 89;
+    --brand-900: 19 78 74;
+    --brand-950: 4 47 46;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply m-0 min-h-screen min-w-[320px] bg-mist font-sans text-ink antialiased dark:bg-ink dark:text-mist;
+  }
+
+  ::selection {
+    @apply bg-brand-700 text-white;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  img {
+    @apply max-w-full;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand-700 px-6 py-3.5 text-sm font-semibold text-white shadow-glow transition duration-300 ease-out-expo hover:-translate-y-0.5 hover:bg-brand-600 hover:shadow-lift active:translate-y-0;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border bg-white/40 px-6 py-3.5 text-sm font-semibold text-ink backdrop-blur-md transition duration-300 ease-out-expo hover:border-brand-700 hover:bg-white/70 dark:bg-white/5 dark:text-mist dark:hover:border-brand-400 dark:hover:bg-white/10;
+    border-color: rgb(11 31 28 / 0.15);
+  }
+
+  .dark .btn-ghost {
+    border-color: rgb(255 255 255 / 0.2);
+  }
+
+  .surface {
+    @apply rounded-3xl border bg-white/80 shadow-soft backdrop-blur-sm dark:bg-ink-soft/80;
+    border-color: rgb(11 31 28 / 0.08);
+  }
+
+  .dark .surface {
+    border-color: rgb(255 255 255 / 0.1);
+  }
+
+  .input-field {
+    @apply w-full rounded-2xl border bg-white/70 px-4 py-3.5 text-ink outline-none transition focus:border-brand-600 focus:ring-4 focus:ring-brand-700/10 dark:bg-white/5 dark:text-mist;
+    border-color: rgb(11 31 28 / 0.1);
+  }
+
+  .dark .input-field {
+    border-color: rgb(255 255 255 / 0.1);
+  }
+
+  .input-field::placeholder {
+    color: rgb(61 90 84 / 0.5);
+  }
+
+  .dark .input-field::placeholder {
+    color: rgb(255 255 255 / 0.3);
+  }
+
+  .section-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.22em] text-brand-700 dark:text-brand-300;
+  }
+
+  .grain-overlay {
+    @apply pointer-events-none absolute inset-0 mix-blend-overlay;
+    opacity: 0.035;
+    background-image: theme('backgroundImage.grain');
+  }
+
+  .dark .grain-overlay {
+    opacity: 0.06;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}

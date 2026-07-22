@@ -1,0 +1,1 @@
+import{IsEnum,IsNumber,IsOptional,IsString,Min}from'class-validator';import{PaymentMethod,PaymentProvider}from'@prisma/client';export class LocalPaymentDto{@IsOptional()@IsString()appointmentId?:string;@IsNumber()@Min(0)amount!:number;@IsEnum(PaymentMethod)method!:PaymentMethod;@IsOptional()@IsEnum(PaymentProvider)provider?:PaymentProvider;}

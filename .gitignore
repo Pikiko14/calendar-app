@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+build/
+.output/
+.nuxt/
+.vite/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Prisma
+apps/api/prisma/migrations/**/migration_lock.toml
+
+# Uploads & temp
+uploads/
+tmp/
+.cache/
+
+# Docker
+docker-data/
+
+# PWA
+**/dev-dist/
+
+# WhatsApp sessions
+**/bot_sessions/
+**/.wwebjs_auth/
+**/.wwebjs_cache/

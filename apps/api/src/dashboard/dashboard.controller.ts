@@ -1,0 +1,1 @@
+import{Controller,Get}from'@nestjs/common';import{TenantId}from'../common/decorators/tenant.decorator';import{DashboardService}from'./dashboard.service';@Controller('dashboard')export class DashboardController{constructor(private s:DashboardService){}@Get()metrics(@TenantId()t:string){return this.s.metrics(t)}}

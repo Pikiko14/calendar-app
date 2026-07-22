@@ -1,0 +1,52 @@
+# BeautyBook API — migraciones K8s / AWS
+# Aplicar ConfigMap + Secret con DATABASE_URL, JWT_*, REDIS_*
+# Deployment: apps/api imagen, probes en /api/v1/health
+# HPA: CPU 70%, min 2, max 10
+# PVC opcional: uploads + bot_sessions (o S3 / Redis session store)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beautybook-api-config
+data:
+  NODE_ENV: "production"
+  API_PREFIX: "api/v1"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+---
+# Placeholder — completar con chart Helm o Kustomize en el pipeline CI/CD
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beautybook-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: beautybook-api
+  template:
+    metadata:
+      labels:
+        app: beautybook-api
+    spec:
+      containers:
+        - name: api
+          image: beautybook-api:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: beautybook-api-config
+            - secretRef:
+                name: beautybook-api-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 20

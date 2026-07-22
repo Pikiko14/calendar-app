@@ -1,13 +1,13 @@
-# Local docker-compose (context = apps/api)
+# Railway API — Root Directory VACÍO · Dockerfile path = Dockerfile.api
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY apps/api/package.json apps/api/package-lock.json* ./
 RUN npm install --no-audit --no-fund
 
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/api/ ./
 RUN npx prisma generate && npm run build
 
 FROM node:20-alpine AS runner

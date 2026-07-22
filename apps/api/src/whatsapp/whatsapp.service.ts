@@ -205,11 +205,15 @@ export class WhatsappService {
     }
   }
 
-  /** Teléfono E.164-ish CO / internacional, no un LID numérico largo. */
+  /** Teléfono E.164-ish (CO/VE), no un LID numérico largo. */
   private looksLikeRealPhone(phoneKey: string) {
     if (/^57\d{10}$/.test(phoneKey)) return true;
+    if (/^58\d{10}$/.test(phoneKey)) return true;
     if (/^3\d{9}$/.test(phoneKey)) return true;
-    if (/^\d{10,13}$/.test(phoneKey) && !phoneKey.startsWith('57')) return true;
+    if (/^4\d{9}$/.test(phoneKey)) return true;
+    // LID suele ser ≥14 dígitos sin prefijo de país claro
+    if (phoneKey.length >= 14) return false;
+    if (/^\d{10,13}$/.test(phoneKey)) return true;
     return false;
   }
 

@@ -67,6 +67,8 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
   private readonly antiBan: AntiBanOptions;
   /** Caché de mensajes salientes para retries de Baileys (evita Bad MAC en reenvíos). */
   private readonly recentMessages = new Map<string, WAMessage['message']>();
+  /** LID → teléfono real (persistido en authDir/lid-map.json) */
+  private readonly lidToPhone = new Map<string, string>();
   private unhandledHooked = false;
 
   constructor(
@@ -302,8 +304,10 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
     if (!session?.sock || session.status !== 'connected') {
       throw new Error('WhatsApp no está conectado para este negocio.');
     }
-    const jid = this.toJid(phone);
+    const phoneKey = this.normalizePhoneDigits(phone);
+    const jid = this.toJid(phoneKey);
     await this.sendSafe(tenantId, session.sock, jid, text);
+    await this.learnLidForPhone(tenantId, session.sock, phoneKey);
   }
 
   async sendBotReply(
@@ -383,6 +387,11 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
         }
         // Siempre texto: es lo que llega de forma fiable al móvil.
         sent = await live.sock.sendMessage(jid, { text: body });
+        // Si WhatsApp responde con @lid, guardar mapeo al número al que enviamos
+        const sentJid = sent?.key?.remoteJid;
+        if (sentJid?.endsWith('@lid') && jid.endsWith('@s.whatsapp.net')) {
+          this.rememberLidMapping(tenantId, sentJid, this.jidToPhone(jid));
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (/Connection Closed|timed out|not connected/i.test(msg)) {
@@ -568,6 +577,22 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
       void this.onConnectionUpdate(tenantId, generation, sock, update);
     });
 
+    // Mapeos LID ↔ teléfono (WhatsApp moderno)
+    try {
+      this.loadLidMap(tenantId);
+      (sock.ev as { on: (event: string, cb: (data: unknown) => void) => void }).on(
+        'lid-mapping.update',
+        (data: unknown) => {
+          const d = data as { lid?: string; pn?: string };
+          if (d?.lid && d?.pn) {
+            this.rememberLidMapping(tenantId, d.lid, this.jidToPhone(d.pn));
+          }
+        },
+      );
+    } catch {
+      /* evento no disponible en esta versión de Baileys */
+    }
+
     sock.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify') return;
       const current = this.sessions.get(tenantId);
@@ -576,6 +601,8 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
         if (msg.key?.id && msg.message) {
           this.rememberMessage(msg.key.id, msg.message);
         }
+        // Aprender mapeo LID desde mensajes entrantes/salientes
+        void this.learnLidFromMessage(tenantId, sock, msg);
         this.scheduleIncoming(tenantId, sock, msg);
       }
     });
@@ -734,7 +761,7 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
         /* ignore */
       }
 
-      const phone = await this.resolveInboundPhone(sock, msg);
+      const phone = await this.resolveInboundPhone(sock, msg, tenantId);
       if (!phone) {
         this.logger.warn(`WA IN sin teléfono resoluble: ${jid}`);
         return;
@@ -813,7 +840,113 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
   private jidToPhone(jid: string) {
     const num = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
     if (num.length === 10 && num.startsWith('3')) return `57${num}`;
+    if (num.length === 10 && num.startsWith('4')) return `58${num}`;
     return num;
+  }
+
+  private lidMapPath(tenantId: string) {
+    return join(this.authDir(tenantId), 'lid-map.json');
+  }
+
+  private loadLidMap(tenantId: string) {
+    try {
+      const path = this.lidMapPath(tenantId);
+      if (!existsSync(path)) return;
+      const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, string>;
+      for (const [lid, phone] of Object.entries(raw)) {
+        this.lidToPhone.set(`${tenantId}:${lid}`, phone);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private persistLidMap(tenantId: string) {
+    try {
+      const dir = this.authDir(tenantId);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      const out: Record<string, string> = {};
+      const prefix = `${tenantId}:`;
+      for (const [k, v] of this.lidToPhone.entries()) {
+        if (k.startsWith(prefix)) out[k.slice(prefix.length)] = v;
+      }
+      writeFileSync(this.lidMapPath(tenantId), JSON.stringify(out, null, 2));
+    } catch (e) {
+      this.logger.debug(
+        `No se pudo guardar lid-map: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
+  private rememberLidMapping(tenantId: string, lidJid: string, phone: string) {
+    const lid = lidJid.includes('@') ? lidJid : `${lidJid}@lid`;
+    const phoneKey = this.normalizePhoneDigits(phone);
+    if (!phoneKey || phoneKey.length < 10) return;
+    const key = `${tenantId}:${lid}`;
+    const prev = this.lidToPhone.get(key);
+    if (prev === phoneKey) return;
+    this.lidToPhone.set(key, phoneKey);
+    // También por solo dígitos del LID
+    const lidDigits = this.jidToPhone(lid);
+    if (lidDigits) this.lidToPhone.set(`${tenantId}:${lidDigits}`, phoneKey);
+    this.persistLidMap(tenantId);
+    this.logger.log(`LID map ${tenantId}: ${lid} → ${phoneKey}`);
+  }
+
+  private lookupLidPhone(tenantId: string, lidJidOrDigits: string): string | null {
+    const lid = lidJidOrDigits.includes('@')
+      ? lidJidOrDigits
+      : `${lidJidOrDigits}@lid`;
+    return (
+      this.lidToPhone.get(`${tenantId}:${lid}`) ||
+      this.lidToPhone.get(`${tenantId}:${this.jidToPhone(lid)}`) ||
+      null
+    );
+  }
+
+  private async learnLidForPhone(
+    tenantId: string,
+    sock: WASocket,
+    phoneKey: string,
+  ) {
+    try {
+      const mapping = (
+        sock as WASocket & {
+          signalRepository?: {
+            lidMapping?: {
+              getLIDForPN?: (pn: string) => Promise<string | null> | string | null;
+            };
+          };
+        }
+      ).signalRepository?.lidMapping;
+      if (!mapping?.getLIDForPN) return;
+      const pnJid = `${phoneKey}@s.whatsapp.net`;
+      const lid = await Promise.resolve(mapping.getLIDForPN(pnJid));
+      if (lid) this.rememberLidMapping(tenantId, lid, phoneKey);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private async learnLidFromMessage(
+    tenantId: string,
+    sock: WASocket,
+    msg: WAMessage,
+  ) {
+    const jid = msg.key.remoteJid;
+    if (!jid) return;
+    const key = msg.key as WAMessage['key'] & {
+      remoteJidAlt?: string;
+      senderPn?: string;
+    };
+    const alt = key.remoteJidAlt || key.senderPn;
+    if (jid.endsWith('@lid') && alt && String(alt).includes('@s.whatsapp.net')) {
+      this.rememberLidMapping(tenantId, jid, this.jidToPhone(alt));
+      return;
+    }
+    if (jid.endsWith('@s.whatsapp.net')) {
+      await this.learnLidForPhone(tenantId, sock, this.jidToPhone(jid));
+    }
   }
 
   /**
@@ -823,6 +956,7 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
   private async resolveInboundPhone(
     sock: WASocket,
     msg: WAMessage,
+    tenantId: string,
   ): Promise<string | null> {
     const jid = msg.key.remoteJid;
     if (!jid) return null;
@@ -843,19 +977,37 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
     ].filter(Boolean) as string[];
 
     for (const c of candidates) {
-      if (c.includes('@s.whatsapp.net') || (!c.includes('@') && /^\d{10,15}$/.test(c))) {
-        const phone = this.jidToPhone(c.includes('@') ? c : `${c}@s.whatsapp.net`);
-        if (phone.length >= 10) return phone;
+      if (
+        c.includes('@s.whatsapp.net') ||
+        (!c.includes('@') && /^\d{10,15}$/.test(c))
+      ) {
+        const phone = this.jidToPhone(
+          c.includes('@') ? c : `${c}@s.whatsapp.net`,
+        );
+        if (phone.length >= 10) {
+          if (jid.endsWith('@lid')) {
+            this.rememberLidMapping(tenantId, jid, phone);
+          }
+          return phone;
+        }
       }
     }
 
     if (jid.endsWith('@lid')) {
+      const cached = this.lookupLidPhone(tenantId, jid);
+      if (cached) {
+        this.logger.debug(`LID ${jid} → PN ${cached} (cache)`);
+        return cached;
+      }
+
       try {
         const mapping = (
           sock as WASocket & {
             signalRepository?: {
               lidMapping?: {
-                getPNForLID?: (lid: string) => Promise<string | null> | string | null;
+                getPNForLID?: (
+                  lid: string,
+                ) => Promise<string | null> | string | null;
               };
             };
           }
@@ -866,7 +1018,8 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
         if (pn) {
           const phone = this.jidToPhone(pn);
           if (phone.length >= 10) {
-            this.logger.debug(`LID ${jid} → PN ${phone}`);
+            this.rememberLidMapping(tenantId, jid, phone);
+            this.logger.debug(`LID ${jid} → PN ${phone} (baileys)`);
             return phone;
           }
         }
@@ -876,9 +1029,10 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
         );
       }
 
-      // Último recurso: conversación BOOKING_CONFIRM reciente del tenant (1 sola)
-      // se resuelve en whatsapp.service; aquí devolvemos null para forzar fallback allí
       const lidDigits = this.jidToPhone(jid);
+      this.logger.warn(
+        `WA inbound LID sin PN conocido: ${jid} (usando dígitos ${lidDigits})`,
+      );
       return lidDigits || null;
     }
 
@@ -891,6 +1045,8 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
     let num = phone.replace(/\D/g, '');
     if (num.startsWith('00')) num = num.slice(2);
     if (num.length === 10 && num.startsWith('3')) num = `57${num}`;
+    // VE móvil 10 dígitos empezando en 4 → 58…
+    if (num.length === 10 && num.startsWith('4')) num = `58${num}`;
     return num;
   }
 

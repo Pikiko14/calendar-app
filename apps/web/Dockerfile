@@ -1,11 +1,9 @@
-# Build context = raíz del monorepo (Railway: Dockerfile path = apps/web/Dockerfile)
+# Railway: Root Directory = apps/web · Dockerfile Path = Dockerfile
 FROM node:22-alpine AS build
 WORKDIR /app
-
-COPY apps/web/package.json apps/web/package-lock.json* ./
+COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
-
-COPY apps/web/ ./
+COPY . .
 
 ARG VITE_API_URL=https://api-production-144b.up.railway.app/api/v1
 ARG VITE_APP_URL=https://localhost

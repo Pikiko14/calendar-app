@@ -27,7 +27,7 @@ export class AiService {
         branches: { where: { isActive: true, deletedAt: null }, take: 5 },
       },
     });
-    if (!tenant) return 'No encontré información del negocio.';
+    if (!tenant) return 'No encontré información del negocio..';
 
     const catalog = tenant.services
       .map((s) => `${s.name}: ${s.durationMinutes} min, $${Number(s.price)}`)

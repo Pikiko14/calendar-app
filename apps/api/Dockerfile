@@ -1,7 +1,8 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+COPY package.json package-lock.json* ./
+# npm ci falla si el lock está desfasado (@emnapi / optional deps); install es más robusto en Railway
+RUN npm install --no-audit --no-fund
 
 FROM node:20-alpine AS build
 WORKDIR /app

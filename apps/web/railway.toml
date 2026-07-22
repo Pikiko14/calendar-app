@@ -1,9 +1,10 @@
+# Este archivo solo aplica si Root Directory = apps/web.
+# Config recomendada: Root Directory VACÍO + Dockerfile path apps/web/Dockerfile
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Imagen nginx: no usar npm start
 startCommand = "nginx -g 'daemon off;'"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

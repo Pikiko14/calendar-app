@@ -1,13 +1,14 @@
-# Railway: Root Directory = apps/api · Dockerfile Path = Dockerfile
+# Contexto de build = RAÍZ del repo
+# Railway: Root Directory VACÍO · Dockerfile path = apps/api/Dockerfile
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY apps/api/package.json apps/api/package-lock.json* ./
 RUN npm install --no-audit --no-fund
 
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY apps/api/ ./
 RUN npx prisma generate && npm run build
 
 FROM node:20-alpine AS runner
@@ -19,4 +20,4 @@ COPY --from=build /app/package*.json ./
 COPY --from=build /app/prisma ./prisma
 RUN mkdir -p uploads bot_sessions
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]

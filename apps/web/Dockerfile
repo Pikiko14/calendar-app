@@ -1,15 +1,20 @@
-# Railway: Root Directory = apps/web · Dockerfile Path = Dockerfile
+# Contexto de build = RAÍZ del repo
+# Railway: Root Directory VACÍO · Dockerfile path = apps/web/Dockerfile
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+
+# Solo el package del front (nunca el package.json del monorepo)
+COPY apps/web/package.json apps/web/package-lock.json* ./
 RUN npm install --no-audit --no-fund
-COPY . .
+
+COPY apps/web/ ./
 
 ARG VITE_API_URL=https://api-production-144b.up.railway.app/api/v1
 ARG VITE_APP_URL=https://localhost
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_APP_URL=$VITE_APP_URL
 
+# Script del package beautybook-web (vite), no el del monorepo
 RUN npm run build
 
 FROM nginx:1.27-alpine

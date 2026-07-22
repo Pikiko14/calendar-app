@@ -1,4 +1,4 @@
-# Contexto de build = raíz del repo (usado por Railway)
+# Usado cuando el contexto de Docker es la raíz del monorepo
 .git
 .gitignore
 **/node_modules
@@ -8,7 +8,9 @@
 **/.env.*
 !**/.env.example
 bot_sessions
+**/bot_sessions
 uploads
+**/uploads
 *.md
-apps/web/node_modules
 apps/api/node_modules
+apps/web/node_modules

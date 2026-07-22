@@ -1,5 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { DayOfWeek } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { DayOfWeek, UserRole } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { BranchesService } from '../branches/branches.service';
 import { SpecialtiesService } from '../specialties/specialties.service';
@@ -26,6 +32,7 @@ export class WorkersService {
         services: { include: { service: true } },
         specialtyLinks: { include: { specialty: true } },
         schedules: { include: { blocks: true } },
+        user: { select: { id: true, email: true, isActive: true } },
       },
       orderBy: [{ sortOrder: 'asc' }, { firstName: 'asc' }],
     });
@@ -33,7 +40,7 @@ export class WorkersService {
 
   async create(tenantId: string, dto: WorkerDto) {
     const main = await this.branches.getOrCreateMain(tenantId);
-    const { specialtyIds, ...rest } = dto;
+    const { specialtyIds, password, ...rest } = dto;
     const worker = await this.prisma.worker.create({
       data: {
         tenantId,
@@ -66,6 +73,15 @@ export class WorkersService {
       await this.setSpecialties(tenantId, worker.id, specialtyIds);
     }
 
+    await this.syncLoginAccess(tenantId, worker.id, {
+      email: rest.email,
+      password,
+      firstName: rest.firstName,
+      lastName: rest.lastName,
+      phone: rest.phone,
+      isActive: rest.isActive ?? true,
+    });
+
     return this.findOne(tenantId, worker.id);
   }
 
@@ -76,7 +92,110 @@ export class WorkersService {
         services: { include: { service: true } },
         specialtyLinks: { include: { specialty: true } },
         schedules: { include: { blocks: true } },
+        user: { select: { id: true, email: true, isActive: true } },
       },
+    });
+  }
+
+  /** User rol WORKER vinculado al profesional (login → calendario). */
+  private async syncLoginAccess(
+    tenantId: string,
+    workerId: string,
+    data: {
+      email?: string | null;
+      password?: string | null;
+      firstName: string;
+      lastName: string;
+      phone?: string | null;
+      isActive: boolean;
+    },
+  ) {
+    const worker = await this.prisma.worker.findFirst({
+      where: { id: workerId, tenantId, deletedAt: null },
+    });
+    if (!worker) return;
+
+    const email = (data.email || worker.email || '').trim().toLowerCase();
+    const password = data.password?.trim();
+
+    if (!password && !worker.userId) return;
+
+    if ((password || worker.userId) && !email) {
+      throw new BadRequestException(
+        'El email es obligatorio para el acceso al panel del trabajador.',
+      );
+    }
+
+    if (worker.userId) {
+      const update: {
+        email?: string;
+        passwordHash?: string;
+        firstName: string;
+        lastName: string;
+        phone?: string | null;
+        isActive: boolean;
+        role: UserRole;
+      } = {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        isActive: data.isActive,
+        role: UserRole.WORKER,
+      };
+      if (email) update.email = email;
+      if (password) update.passwordHash = await bcrypt.hash(password, 12);
+
+      if (email) {
+        const clash = await this.prisma.user.findFirst({
+          where: {
+            tenantId,
+            email,
+            deletedAt: null,
+            NOT: { id: worker.userId },
+          },
+        });
+        if (clash) {
+          throw new ConflictException('Ya existe un usuario con ese email.');
+        }
+      }
+
+      await this.prisma.user.update({
+        where: { id: worker.userId },
+        data: update,
+      });
+      if (email && worker.email !== email) {
+        await this.prisma.worker.update({
+          where: { id: workerId },
+          data: { email },
+        });
+      }
+      return;
+    }
+
+    if (!password || !email) return;
+
+    const exists = await this.prisma.user.findFirst({
+      where: { tenantId, email, deletedAt: null },
+    });
+    if (exists) {
+      throw new ConflictException('Ya existe un usuario con ese email.');
+    }
+
+    const user = await this.prisma.user.create({
+      data: {
+        tenantId,
+        email,
+        passwordHash: await bcrypt.hash(password, 12),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        role: UserRole.WORKER,
+        isActive: data.isActive,
+      },
+    });
+    await this.prisma.worker.update({
+      where: { id: workerId },
+      data: { userId: user.id, email },
     });
   }
 
@@ -86,12 +205,21 @@ export class WorkersService {
     });
     if (!worker) throw new NotFoundException('Profesional no encontrado.');
 
-    const { specialtyIds, ...rest } = dto;
+    const { specialtyIds, password, ...rest } = dto;
     await this.prisma.worker.update({ where: { id }, data: rest });
 
     if (specialtyIds !== undefined) {
       await this.setSpecialties(tenantId, id, specialtyIds);
     }
+
+    await this.syncLoginAccess(tenantId, id, {
+      email: rest.email ?? worker.email,
+      password,
+      firstName: rest.firstName ?? worker.firstName,
+      lastName: rest.lastName ?? worker.lastName,
+      phone: rest.phone ?? worker.phone,
+      isActive: rest.isActive ?? worker.isActive,
+    });
 
     return this.findOne(tenantId, id);
   }
@@ -127,6 +255,16 @@ export class WorkersService {
 
   async remove(tenantId: string, id: string) {
     await this.updateExists(tenantId, id);
+    const worker = await this.prisma.worker.findFirst({
+      where: { id, tenantId },
+      select: { userId: true },
+    });
+    if (worker?.userId) {
+      await this.prisma.user.update({
+        where: { id: worker.userId },
+        data: { isActive: false, deletedAt: new Date() },
+      });
+    }
     return this.prisma.worker.update({
       where: { id },
       data: { deletedAt: new Date(), isActive: false },

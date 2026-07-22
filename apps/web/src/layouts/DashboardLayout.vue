@@ -27,7 +27,7 @@ const tenantLogo = computed(() => mediaUrl(auth.user?.tenant?.logoUrl))
 const tenantName = computed(() => auth.user?.tenant?.name || 'Tu negocio')
 const tenantInitial = computed(() => (tenantName.value || 'N').slice(0, 1).toUpperCase())
 
-const nav = [
+const navAll = [
   { label: 'Inicio', to: '/app', icon: LayoutDashboard },
   { label: 'Calendario', to: '/app/calendar', icon: CalendarDays },
   { label: 'Servicios', to: '/app/services', icon: Scissors },
@@ -35,6 +35,19 @@ const nav = [
   { label: 'Clientes', to: '/app/clients', icon: Contact },
   { label: 'Ajustes', to: '/app/settings', icon: Settings2 },
 ]
+
+const nav = computed(() =>
+  auth.isWorker
+    ? navAll.filter((i) => i.to === '/app/calendar')
+    : navAll,
+)
+
+function roleLabel(role?: string) {
+  if (role === 'WORKER') return 'Trabajador'
+  if (role === 'RECEPTIONIST') return 'Recepción'
+  if (role === 'ADMIN' || role === 'SUPER_ADMIN') return 'Admin'
+  return role || 'Usuario'
+}
 
 function isActive(to: string) {
   if (to === '/app') return route.path === '/app'
@@ -110,6 +123,7 @@ watch(
 
       <div class="mt-auto space-y-2 border-t border-black/5 pt-4 dark:border-white/5">
         <RouterLink
+          v-if="!auth.isWorker"
           :to="`/${auth.user?.tenant?.slug || 'barberia-premium'}`"
           class="flex items-center gap-2 rounded-2xl px-3 py-2.5 text-sm text-ink-muted transition hover:bg-brand-50 hover:text-brand-800 dark:text-white/40 dark:hover:bg-white/5"
         >
@@ -148,7 +162,7 @@ watch(
           </div>
           <div>
             <p class="text-sm font-semibold leading-tight">{{ auth.displayName || 'Sesión activa' }}</p>
-            <p class="text-xs text-ink-muted">{{ auth.user?.role || 'ADMIN' }}</p>
+            <p class="text-xs text-ink-muted">{{ roleLabel(auth.user?.role) }}</p>
           </div>
         </div>
         <div class="flex items-center gap-2">

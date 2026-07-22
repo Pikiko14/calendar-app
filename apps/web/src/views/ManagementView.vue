@@ -46,6 +46,7 @@ type WorkerRow = {
   phone?: string | null
   ratingAvg?: number
   ratingCount?: number
+  user?: { id: string; email: string; isActive: boolean } | null
   schedules?: Array<{
     dayOfWeek: string
     isOff: boolean
@@ -98,6 +99,7 @@ type ManagementFormValues = {
   description: string
   phone: string
   email: string
+  password: string
   isActive: boolean
 }
 
@@ -118,6 +120,7 @@ const { handleSubmit, resetForm, values, setFieldValue } = useForm<ManagementFor
     description: '',
     phone: '',
     email: '',
+    password: '',
     isActive: true,
   },
 })
@@ -146,6 +149,7 @@ function openCreate() {
       description: '',
       phone: '',
       email: '',
+      password: '',
       isActive: true,
     },
   })
@@ -165,6 +169,7 @@ function openEditService(row: ServiceRow) {
       lastName: '',
       phone: '',
       email: '',
+      password: '',
     },
   })
   showModal.value = true
@@ -187,7 +192,8 @@ function openEditWorker(row: WorkerRow) {
       durationMinutes: 30,
       price: 0,
       description: '',
-      email: '',
+      email: row.email || '',
+      password: '',
     },
   })
   showModal.value = true
@@ -263,13 +269,15 @@ const onSubmit = handleSubmit(async (form) => {
         await api('/services', { method: 'POST', body: JSON.stringify(payload) })
       }
     } else if (kind.value === 'Equipo') {
-      const payload = {
+      const payload: Record<string, unknown> = {
         firstName: String(form.firstName).trim(),
         lastName: String(form.lastName).trim() || '—',
         specialtyIds: selectedSpecialtyIds.value,
         phone: form.phone || undefined,
+        email: form.email || undefined,
         isActive: Boolean(form.isActive),
       }
+      if (form.password) payload.password = form.password
       let workerId = editingId.value
       if (workerId) {
         await api(`/workers/${workerId}`, {
@@ -772,6 +780,21 @@ onMounted(load)
               </div>
             </div>
             <FormField name="phone" label="Teléfono" type="tel" placeholder="WhatsApp / teléfono" />
+            <FormField
+              name="email"
+              label="Email (acceso al panel)"
+              type="email"
+              placeholder="trabajador@negocio.com"
+            />
+            <FormField
+              name="password"
+              :label="editingId ? 'Nueva contraseña (opcional)' : 'Contraseña de acceso'"
+              type="password"
+              :placeholder="editingId ? 'Dejar vacío para no cambiar' : 'Mín. 8 caracteres'"
+            />
+            <p class="text-xs text-ink-muted">
+              Con email + contraseña el trabajador inicia sesión y solo ve su calendario.
+            </p>
             <label class="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"

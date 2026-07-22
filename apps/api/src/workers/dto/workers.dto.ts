@@ -47,6 +47,11 @@ export class WorkerDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** Acceso al panel (calendario). Requiere email + password al crear acceso. */
+  @IsOptional()
+  @IsString()
+  password?: string;
 }
 
 export class UpdateWorkerDto {
@@ -82,6 +87,11 @@ export class UpdateWorkerDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** Acceso al panel (calendario). Requiere email + password al crear acceso. */
+  @IsOptional()
+  @IsString()
+  password?: string;
 }
 
 export class WorkerScheduleDto {

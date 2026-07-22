@@ -55,7 +55,7 @@ const onSubmit = handleSubmit(async (values) => {
     } else {
       await auth.login(values.email, values.password)
     }
-    await router.push('/app')
+    await router.push(auth.isWorker ? '/app/calendar' : '/app')
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'No se pudo completar'
   }

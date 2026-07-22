@@ -51,11 +51,16 @@ router.beforeEach(async (to) => {
       const me = await auth.fetchMe()
       if (!me) return { name: 'login' }
     }
+    // Trabajador: solo calendario
+    if (auth.isWorker) {
+      const allowed = to.name === 'calendar'
+      if (!allowed) return { name: 'calendar' }
+    }
   }
 
   if (to.meta.guest && auth.isAuthenticated) {
     if (!auth.user) await auth.fetchMe()
-    if (auth.user) return { name: 'dashboard' }
+    if (auth.user) return { name: auth.homeRoute() }
   }
 
   return true

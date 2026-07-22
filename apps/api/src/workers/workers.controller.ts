@@ -15,6 +15,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { UserRole } from '@prisma/client';
+import { Roles } from '../common/decorators/roles.decorator';
 import { TenantId } from '../common/decorators/tenant.decorator';
 import { WorkersService } from './workers.service';
 import {
@@ -39,11 +41,13 @@ export class WorkersController {
     return this.workers.list(tenantId);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Post()
   create(@TenantId() tenantId: string, @Body() dto: WorkerDto) {
     return this.workers.create(tenantId, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Patch(':id')
   update(
     @TenantId() tenantId: string,
@@ -53,6 +57,7 @@ export class WorkersController {
     return this.workers.update(tenantId, id, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Post(':id/photo')
   @UseInterceptors(
     FileInterceptor('photo', {
@@ -82,11 +87,13 @@ export class WorkersController {
     return this.workers.update(tenantId, id, { photoUrl });
   }
 
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @Delete(':id')
   delete(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.workers.remove(tenantId, id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Post(':id/specialties')
   setSpecialties(
     @TenantId() tenantId: string,
@@ -96,6 +103,7 @@ export class WorkersController {
     return this.workers.setSpecialties(tenantId, id, specialtyIds || []);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Post(':id/services')
   services(
     @TenantId() tenantId: string,
@@ -105,6 +113,7 @@ export class WorkersController {
     return this.workers.services(tenantId, id, serviceIds);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Post(':id/schedules')
   schedule(
     @TenantId() tenantId: string,
@@ -114,6 +123,7 @@ export class WorkersController {
     return this.workers.schedule(tenantId, id, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Put(':id/schedules/week')
   setWeeklySchedule(
     @TenantId() tenantId: string,
@@ -123,6 +133,7 @@ export class WorkersController {
     return this.workers.setWeeklySchedule(tenantId, id, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   @Post(':id/time-off')
   timeOff(
     @TenantId() tenantId: string,

@@ -6,9 +6,13 @@ import 'dayjs/locale/es'
 import { ChevronLeft, ChevronRight, ChevronDown, UsersRound } from '@lucide/vue'
 import { api, mediaUrl } from '@/api/client'
 import { confirmAction, promptText, toastSuccess, toastError } from '@/lib/swal'
+import { useAuthStore } from '@/stores/auth'
 
 dayjs.extend(isoWeek)
 dayjs.locale('es')
+
+const auth = useAuthStore()
+const isWorkerView = computed(() => auth.isWorker)
 
 type Mode = 'Día' | 'Semana' | 'Mes'
 type DayKey =
@@ -238,6 +242,7 @@ const calendarTitle = computed(() =>
 )
 
 function selectWorker(id: string) {
+  if (isWorkerView.value) return
   selectedWorkerId.value = id
   if (service.value !== 'Todos') {
     const stillValid = services.value.includes(service.value)
@@ -401,7 +406,9 @@ async function load() {
     appointments.value = apps
     businessSchedules.value = scheduleRes.schedules || []
     workersList.value = workers
-    if (
+    if (auth.workerId) {
+      selectedWorkerId.value = auth.workerId
+    } else if (
       selectedWorkerId.value &&
       !workers.some((w) => w.id === selectedWorkerId.value && w.isActive !== false)
     ) {
@@ -504,7 +511,7 @@ onMounted(load)
 
     <template v-else>
       <div class="surface space-y-4 p-4 sm:p-5">
-        <div>
+        <div v-if="!isWorkerView">
           <p class="text-xs font-bold uppercase tracking-wide text-ink-muted">
             Trabajador
           </p>
@@ -564,6 +571,12 @@ onMounted(load)
             <span class="font-semibold text-ink">{{ workerLabel(selectedWorker) }}</span>.
           </p>
         </div>
+        <p v-else class="text-sm text-ink-muted">
+          Tu agenda personal
+          <span v-if="selectedWorker" class="font-semibold text-ink">
+            · {{ workerLabel(selectedWorker) }}
+          </span>
+        </p>
 
         <div class="flex flex-wrap items-center justify-between gap-3 border-t border-black/5 pt-4 dark:border-white/10">
           <div class="flex flex-wrap items-center gap-2">

@@ -54,6 +54,20 @@ export const workerSchema = yup.object({
       if (!v) return true
       return v.replace(/\D/g, '').length >= 7
     }),
+  email: yup
+    .string()
+    .trim()
+    .email('Correo inválido')
+    .optional()
+    .transform((v) => (v === '' ? undefined : v)),
+  password: yup
+    .string()
+    .optional()
+    .default('')
+    .test('password', 'Mínimo 8 caracteres', (v) => {
+      if (!v) return true
+      return v.length >= 8
+    }),
   isActive: yup.boolean().default(true),
 })
 

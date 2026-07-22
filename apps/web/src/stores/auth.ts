@@ -10,6 +10,7 @@ export type AuthUser = {
   lastName?: string
   role?: string
   tenantId?: string | null
+  worker?: { id: string; firstName: string; lastName: string } | null
   tenant?: {
     id: string
     name: string
@@ -47,11 +48,17 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('beautybook-token'))
 
   const isAuthenticated = computed(() => Boolean(token.value))
+  const isWorker = computed(() => user.value?.role === 'WORKER')
+  const workerId = computed(() => user.value?.worker?.id ?? null)
   const displayName = computed(() => {
     if (!user.value) return ''
     if (user.value.firstName) return `${user.value.firstName} ${user.value.lastName ?? ''}`.trim()
     return user.value.email
   })
+
+  function homeRoute() {
+    return isWorker.value ? 'calendar' : 'dashboard'
+  }
 
   function persistTokens(tokens: AuthResponse) {
     localStorage.setItem('beautybook-token', tokens.accessToken)
@@ -154,7 +161,10 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     error,
     isAuthenticated,
+    isWorker,
+    workerId,
     displayName,
+    homeRoute,
     login,
     register,
     fetchMe,

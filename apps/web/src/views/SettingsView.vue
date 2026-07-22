@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, apiUpload, mediaUrl } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
 import { applyBrandTheme } from '@/lib/brand'
@@ -26,6 +26,13 @@ const tabs: Array<{ id: SettingsTab; label: string }> = [
 
 const activeTab = ref<SettingsTab>('marca')
 const auth = useAuthStore()
+const locationPickerRef = ref<{ refreshMapSize: () => void } | null>(null)
+
+watch(activeTab, async (tab) => {
+  if (tab !== 'ubicacion') return
+  await nextTick()
+  locationPickerRef.value?.refreshMapSize()
+})
 
 const COLOR_PRESETS = [
   '#0F766E',
@@ -647,8 +654,8 @@ const showSaveBar = computed(() =>
           </div>
         </article>
 
-        <!-- UBICACIÓN -->
-        <article v-show="activeTab === 'ubicacion'" class="surface p-6">
+        <!-- UBICACIÓN (v-if: Leaflet necesita montarse con el contenedor visible) -->
+        <article v-if="activeTab === 'ubicacion'" class="surface p-6">
           <h2 class="font-display text-xl font-bold">Ubicación</h2>
           <p class="mt-1 text-sm text-ink-muted">
             Se usa en confirmaciones de WhatsApp, el bot y el portal de reservas. Marca el local en el
@@ -685,6 +692,7 @@ const showSaveBar = computed(() =>
           </div>
           <div class="mt-4">
             <LocationPicker
+              ref="locationPickerRef"
               :latitude="latitude"
               :longitude="longitude"
               @update="onLocationUpdate"

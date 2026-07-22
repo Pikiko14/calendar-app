@@ -148,6 +148,7 @@ export class AuthService {
         role: true,
         tenantId: true,
         tenant: true,
+        worker: { select: { id: true, firstName: true, lastName: true } },
       },
     });
   }

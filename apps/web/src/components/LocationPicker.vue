@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 
-// Fix iconos por defecto en Vite
 const DefaultIcon = L.icon({
   iconUrl: markerIcon,
   iconRetinaUrl: markerIcon2x,
@@ -44,11 +43,22 @@ const hint = ref('Haz clic en el mapa o usa tu ubicación GPS.')
 
 let map: L.Map | null = null
 let marker: L.Marker | null = null
+let resizeObserver: ResizeObserver | null = null
 
-const DEFAULT_CENTER: L.LatLngExpression = [4.711, -74.0721] // Bogotá
+const DEFAULT_CENTER: L.LatLngExpression = [4.711, -74.0721]
 
 function mapsLink(lat: number, lng: number) {
   return `https://www.google.com/maps?q=${lat},${lng}`
+}
+
+function refreshMapSize() {
+  if (!map) return
+  const run = () => map?.invalidateSize({ animate: false })
+  requestAnimationFrame(() => {
+    run()
+    setTimeout(run, 50)
+    setTimeout(run, 200)
+  })
 }
 
 async function reverseGeocode(lat: number, lng: number) {
@@ -63,9 +73,7 @@ async function reverseGeocode(lat: number, lng: number) {
     url.searchParams.set('accept-language', 'es')
 
     const res = await fetch(url.toString(), {
-      headers: {
-        Accept: 'application/json',
-      },
+      headers: { Accept: 'application/json' },
     })
     if (!res.ok) throw new Error('No se pudo obtener la dirección')
     const data = (await res.json()) as {
@@ -87,9 +95,9 @@ async function reverseGeocode(lat: number, lng: number) {
     const a = data.address || {}
     const street = [a.road, a.house_number].filter(Boolean).join(' ')
     const area = a.neighbourhood || a.suburb || ''
-    const address = street || area || data.display_name?.split(',')[0] || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-    const city =
-      a.city || a.town || a.village || a.municipality || a.state || ''
+    const address =
+      street || area || data.display_name?.split(',')[0] || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+    const city = a.city || a.town || a.village || a.municipality || a.state || ''
     const country = a.country || ''
 
     emit('update', {
@@ -129,6 +137,7 @@ function setMarker(lat: number, lng: number, reverse = true) {
     })
   }
   map.setView(latlng, Math.max(map.getZoom(), 16))
+  refreshMapSize()
   if (reverse) void reverseGeocode(lat, lng)
 }
 
@@ -155,7 +164,8 @@ function useMyLocation() {
   )
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await nextTick()
   if (!mapEl.value) return
   const hasCoords =
     props.latitude != null &&
@@ -184,8 +194,9 @@ onMounted(() => {
     setMarker(props.latitude!, props.longitude!, false)
   }
 
-  // Leaflet a veces necesita invalidate tras montar en layout
-  requestAnimationFrame(() => map?.invalidateSize())
+  resizeObserver = new ResizeObserver(() => refreshMapSize())
+  resizeObserver.observe(mapEl.value)
+  refreshMapSize()
 })
 
 watch(
@@ -201,10 +212,14 @@ watch(
 )
 
 onUnmounted(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
   map?.remove()
   map = null
   marker = null
 })
+
+defineExpose({ refreshMapSize })
 </script>
 
 <template>
@@ -225,7 +240,7 @@ onUnmounted(() => {
     <p v-if="error" class="text-xs text-red-600">{{ error }}</p>
     <div
       ref="mapEl"
-      class="h-64 w-full overflow-hidden rounded-2xl border border-black/10 dark:border-white/10"
+      class="h-64 w-full overflow-hidden rounded-2xl border border-black/10 dark:border-white/10 z-0"
     />
   </div>
 </template>

@@ -1,12 +1,13 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
-import { AppointmentStatus, Prisma } from '@prisma/client';
+import { AppointmentStatus, Prisma, UserRole } from '@prisma/client';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import timezone from 'dayjs/plugin/timezone';
@@ -14,6 +15,7 @@ import utc from 'dayjs/plugin/utc';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ClientsService } from '../clients/clients.service';
+import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import {
   blockCoversRange,
   dayEnumFromIndex,
@@ -388,15 +390,54 @@ export class AppointmentsService {
     return appointment;
   }
 
-  list(tenantId: string) {
+  async list(tenantId: string, user?: JwtPayload) {
+    let workerId: string | undefined;
+    if (user?.role === UserRole.WORKER) {
+      const linked = await this.prisma.worker.findFirst({
+        where: { tenantId, userId: user.sub, deletedAt: null },
+        select: { id: true },
+      });
+      if (!linked) return [];
+      workerId = linked.id;
+    }
+
     return this.prisma.appointment.findMany({
-      where: { tenantId, deletedAt: null },
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(workerId ? { workerId } : {}),
+      },
       include: { client: true, worker: true, service: true, branch: true },
       orderBy: { startAt: 'asc' },
     });
   }
 
-  async updateStatus(tenantId: string, id: string, dto: StatusDto) {
+  private async assertWorkerOwnsAppointment(
+    tenantId: string,
+    appointmentId: string,
+    user?: JwtPayload,
+  ) {
+    if (!user || user.role !== UserRole.WORKER) return;
+    const linked = await this.prisma.worker.findFirst({
+      where: { tenantId, userId: user.sub, deletedAt: null },
+      select: { id: true },
+    });
+    const appt = await this.prisma.appointment.findFirst({
+      where: { id: appointmentId, tenantId, deletedAt: null },
+      select: { workerId: true },
+    });
+    if (!linked || !appt || appt.workerId !== linked.id) {
+      throw new ForbiddenException('Solo puedes gestionar tus propias citas.');
+    }
+  }
+
+  async updateStatus(
+    tenantId: string,
+    id: string,
+    dto: StatusDto,
+    user?: JwtPayload,
+  ) {
+    await this.assertWorkerOwnsAppointment(tenantId, id, user);
     const current = await this.prisma.appointment.findFirst({
       where: { id, tenantId, deletedAt: null },
       select: { clientId: true, status: true, version: true },
@@ -491,11 +532,18 @@ export class AppointmentsService {
     return next;
   }
 
-  cancel(tenantId: string, id: string, dto: StatusDto) {
-    return this.updateStatus(tenantId, id, {
-      ...dto,
-      status: AppointmentStatus.CANCELLED,
-    });
+  async cancel(
+    tenantId: string,
+    id: string,
+    dto: StatusDto,
+    user?: JwtPayload,
+  ) {
+    return this.updateStatus(
+      tenantId,
+      id,
+      { ...dto, status: AppointmentStatus.CANCELLED },
+      user,
+    );
   }
 
   async availability(tenantId: string, dto: AvailabilityDto) {

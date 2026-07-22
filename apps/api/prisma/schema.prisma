@@ -131,6 +131,7 @@ enum WaitlistStatus {
 enum WhatsAppConversationState {
   IDLE
   MENU
+  BOOKING_NAME
   BOOKING_SERVICE
   BOOKING_DATE
   BOOKING_TIME

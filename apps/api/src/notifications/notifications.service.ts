@@ -137,7 +137,12 @@ export class NotificationsService {
       .join('\n');
 
     const variants = phoneLookupVariants(phone);
-    const existingConvo = await this.prisma.whatsAppConversation.findFirst({
+    const confirmContext = {
+      appointmentId: appointment.id,
+      awaitingConfirm: true,
+    };
+
+    const existingConvos = await this.prisma.whatsAppConversation.findMany({
       where: {
         tenantId,
         OR: [
@@ -146,16 +151,13 @@ export class NotificationsService {
         ],
       },
       orderBy: { updatedAt: 'desc' },
+      take: 10,
     });
 
-    const confirmContext = {
-      appointmentId: appointment.id,
-      awaitingConfirm: true,
-    };
-
-    if (existingConvo) {
+    if (existingConvos.length) {
+      const [primary, ...rest] = existingConvos;
       await this.prisma.whatsAppConversation.update({
-        where: { id: existingConvo.id },
+        where: { id: primary.id },
         data: {
           phone,
           clientId: appointment.clientId,
@@ -163,6 +165,16 @@ export class NotificationsService {
           context: confirmContext,
         },
       });
+      for (const other of rest) {
+        await this.prisma.whatsAppConversation.update({
+          where: { id: other.id },
+          data: {
+            clientId: appointment.clientId,
+            state: 'BOOKING_CONFIRM',
+            context: confirmContext,
+          },
+        });
+      }
     } else {
       await this.prisma.whatsAppConversation.create({
         data: {
@@ -181,6 +193,7 @@ export class NotificationsService {
       phone,
       body,
       'Confirmar cita',
+      { appointmentId: appointment.id, kind: 'booking_confirm' },
     );
   }
 

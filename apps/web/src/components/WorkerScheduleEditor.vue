@@ -140,8 +140,11 @@ async function save() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4 backdrop-blur-sm">
-    <div class="surface flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden shadow-lift">
+  <div
+    class="fixed inset-0 z-[100] grid place-items-center bg-ink/50 p-4 pt-20 backdrop-blur-sm md:p-6 md:pt-24"
+    @click.self="emit('close')"
+  >
+    <div class="surface flex max-h-[min(92vh,calc(100vh-6rem))] w-full max-w-2xl flex-col overflow-hidden shadow-lift">
       <div class="border-b border-black/5 px-6 py-5 dark:border-white/5">
         <p class="section-eyebrow">Horario semanal</p>
         <h2 class="font-display mt-1 text-2xl font-bold">{{ workerName }}</h2>

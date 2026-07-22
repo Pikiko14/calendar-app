@@ -79,16 +79,25 @@ export class WhatsappService {
     const client = await this.resolveClient(tenantId, phoneKey);
     let convo = await this.resolveConversation(tenantId, client.id, phoneKey);
 
+    // No pisar el teléfono real de la conversación si el inbound vino como LID
+    const phoneUpdate = this.looksLikeRealPhone(phoneKey)
+      ? { phone: phoneKey }
+      : {};
+
     convo = await this.prisma.whatsAppConversation.update({
       where: { id: convo.id },
-      data: { clientId: client.id, lastMessage: normalized, phone: phoneKey },
+      data: {
+        clientId: client.id,
+        lastMessage: normalized,
+        ...phoneUpdate,
+      },
     });
 
     const ctx = (convo.context ?? {}) as ConvoContext;
     const business = tenant.whatsappBot?.businessName || tenant.name;
     const upper = normalized.toUpperCase();
 
-    // Menú principal (reset total)
+    // Menú principal (reset total) — también sale de confirmación
     if (['HOLA', 'HI', 'BUENAS', 'MENU', 'MENÚ', 'INICIO'].includes(upper)) {
       return this.setState(
         convo.id,
@@ -100,52 +109,45 @@ export class WhatsappService {
     }
 
     // Un paso atrás
-    if (this.isBackCommand(normalized) && convo.state !== WhatsAppConversationState.MENU && convo.state !== WhatsAppConversationState.IDLE) {
+    if (
+      this.isBackCommand(normalized) &&
+      convo.state !== WhatsAppConversationState.MENU &&
+      convo.state !== WhatsAppConversationState.IDLE
+    ) {
       return this.goBack(tenantId, convo.id, business, convo.state, ctx);
     }
 
-    // Confirmación de cita web/recordatorio (1/2/3).
-    // Solo no interceptar si ya avanzó en un flujo nuevo (fecha/hora/reprogramar/etc.).
-    // En BOOKING_SERVICE sí: si hay PENDING, "1" confirma (evita el bug de menú de servicios).
-    const deepInNewBooking: WhatsAppConversationState[] = [
-      WhatsAppConversationState.BOOKING_DATE,
-      WhatsAppConversationState.BOOKING_WORKER,
-      WhatsAppConversationState.BOOKING_TIME,
-      WhatsAppConversationState.RESCHEDULE,
-      WhatsAppConversationState.CANCEL,
-      WhatsAppConversationState.REVIEW,
-    ];
-    const isDeepInNewBooking = deepInNewBooking.includes(convo.state);
-
-    if (!isDeepInNewBooking && ['1', '2', '3'].includes(normalized)) {
-      const pendingId = await this.resolveConfirmAppointmentId(
+    // ——— Estado BOOKING_CONFIRM: máquina de estados (1/2/3) ———
+    // Fuente de verdad: al enviar el WA de confirmación se deja este estado + appointmentId.
+    if (convo.state === WhatsAppConversationState.BOOKING_CONFIRM) {
+      return this.handleBookingConfirmState(
         tenantId,
+        convo.id,
         client.id,
         phoneKey,
         ctx,
-        convo.state,
+        normalized,
       );
-      if (pendingId) {
-        return this.handleReminderReply(
-          tenantId,
-          convo.id,
-          client.id,
-          { ...ctx, appointmentId: pendingId, awaitingConfirm: true },
-          normalized,
-        );
-      }
     }
 
     switch (convo.state) {
       case WhatsAppConversationState.IDLE:
       case WhatsAppConversationState.MENU:
-        return this.handleMenu(tenantId, convo.id, client.id, business, normalized, ctx);
-      case WhatsAppConversationState.BOOKING_CONFIRM:
-        return this.setState(
+        return this.handleMenu(
+          tenantId,
           convo.id,
-          WhatsAppConversationState.BOOKING_CONFIRM,
+          client.id,
+          business,
+          normalized,
           ctx,
-          'Para tu reserva pendiente responde:\n1 Confirmar\n2 Reprogramar\n3 Cancelar',
+          client,
+        );
+      case WhatsAppConversationState.BOOKING_NAME:
+        return this.handleBookingName(
+          tenantId,
+          convo.id,
+          client.id,
+          normalized,
         );
       case WhatsAppConversationState.BOOKING_SERVICE:
         return this.handleBookingService(tenantId, convo.id, normalized);
@@ -154,15 +156,34 @@ export class WhatsappService {
       case WhatsAppConversationState.BOOKING_WORKER:
         return this.handleBookingWorker(tenantId, convo.id, ctx, normalized);
       case WhatsAppConversationState.BOOKING_TIME:
-        return this.handleBookingTime(tenantId, convo.id, client.id, ctx, normalized, tenant);
+        return this.handleBookingTime(
+          tenantId,
+          convo.id,
+          client.id,
+          ctx,
+          normalized,
+          tenant,
+        );
       case WhatsAppConversationState.CONSULT:
         return this.handleConsult(tenantId, client.id, convo.id);
       case WhatsAppConversationState.CANCEL:
         return this.handleCancel(tenantId, client.id, convo.id, normalized);
       case WhatsAppConversationState.RESCHEDULE:
-        return this.handleReschedule(tenantId, client.id, convo.id, ctx, normalized);
+        return this.handleReschedule(
+          tenantId,
+          client.id,
+          convo.id,
+          ctx,
+          normalized,
+        );
       case WhatsAppConversationState.REVIEW:
-        return this.handleReview(tenantId, client.id, convo.id, ctx, normalized);
+        return this.handleReview(
+          tenantId,
+          client.id,
+          convo.id,
+          ctx,
+          normalized,
+        );
       case WhatsAppConversationState.ADVISOR:
         return this.setState(
           convo.id,
@@ -184,6 +205,71 @@ export class WhatsappService {
     }
   }
 
+  /** Teléfono E.164-ish CO / internacional, no un LID numérico largo. */
+  private looksLikeRealPhone(phoneKey: string) {
+    if (/^57\d{10}$/.test(phoneKey)) return true;
+    if (/^3\d{9}$/.test(phoneKey)) return true;
+    if (/^\d{10,13}$/.test(phoneKey) && !phoneKey.startsWith('57')) return true;
+    return false;
+  }
+
+  /**
+   * Estado BOOKING_CONFIRM: solo acepta 1 Confirmar / 2 Reprogramar / 3 Cancelar.
+   */
+  private async handleBookingConfirmState(
+    tenantId: string,
+    convoId: string,
+    clientId: string,
+    phoneKey: string,
+    ctx: ConvoContext,
+    text: string,
+  ) {
+    const appointmentId =
+      ctx.appointmentId ||
+      (await this.resolveConfirmAppointmentId(
+        tenantId,
+        clientId,
+        phoneKey,
+        ctx,
+        WhatsAppConversationState.BOOKING_CONFIRM,
+      ));
+
+    if (!appointmentId) {
+      return this.setState(
+        convoId,
+        WhatsAppConversationState.MENU,
+        {},
+        'No encontramos una reserva pendiente de confirmar. Escribe MENU.',
+        menuActions(),
+      );
+    }
+
+    const confirmCtx: ConvoContext = {
+      appointmentId,
+      awaitingConfirm: true,
+    };
+
+    if (['1', '2', '3'].includes(text)) {
+      this.logger.log(
+        `BOOKING_CONFIRM → ${text} cita=${appointmentId} phone=${phoneKey}`,
+      );
+      return this.handleReminderReply(
+        tenantId,
+        convoId,
+        clientId,
+        confirmCtx,
+        text,
+      );
+    }
+
+    return this.setState(
+      convoId,
+      WhatsAppConversationState.BOOKING_CONFIRM,
+      confirmCtx,
+      'Tu reserva sigue pendiente. Responde solo:\n1 Confirmar\n2 Reprogramar\n3 Cancelar',
+    );
+  }
+
   private isBackCommand(text: string) {
     const t = text.trim().toUpperCase();
     return ['*', 'ATRAS', 'ATRÁS', 'VOLVER', 'BACK', '<<', 'ANTERIOR'].includes(t);
@@ -201,6 +287,7 @@ export class WhatsappService {
     ctx: ConvoContext,
   ) {
     switch (state) {
+      case WhatsAppConversationState.BOOKING_NAME:
       case WhatsAppConversationState.BOOKING_SERVICE:
       case WhatsAppConversationState.CANCEL:
       case WhatsAppConversationState.AI_CHAT:
@@ -269,7 +356,11 @@ export class WhatsappService {
     }
   }
 
-  private async promptServices(tenantId: string, convoId: string) {
+  private async promptServices(
+    tenantId: string,
+    convoId: string,
+    opts?: { greeting?: string },
+  ) {
     const services = await this.prisma.service.findMany({
       where: { tenantId, isActive: true, deletedAt: null },
       orderBy: { sortOrder: 'asc' },
@@ -289,11 +380,14 @@ export class WhatsappService {
           `${i + 1}. ${s.name} — ${s.durationMinutes} min — $${Number(s.price).toLocaleString('es-CO')}`,
       )
       .join('\n');
+    const intro = opts?.greeting
+      ? `${opts.greeting}\n\n¿Qué servicio deseas?\n\n${list}`
+      : `¿Qué servicio deseas?\n\n${list}`;
     return this.setState(
       convoId,
       WhatsAppConversationState.BOOKING_SERVICE,
       { services: services.map((s) => s.id) },
-      this.withNav(`¿Qué servicio deseas?\n\n${list}`),
+      this.withNav(intro),
       choiceActions(
         services.map((s) => ({
           title: s.name,
@@ -388,10 +482,11 @@ export class WhatsappService {
     business: string,
     text: string,
     ctx: ConvoContext,
+    client: { id: string; firstName: string; lastName: string },
   ) {
     switch (text.trim()) {
       case '1':
-        return this.promptServices(tenantId, convoId);
+        return this.promptBookingName(convoId, client);
       case '2':
         return this.handleConsult(tenantId, clientId, convoId);
       case '3': {
@@ -489,6 +584,103 @@ export class WhatsappService {
   private parseChoice(text: string) {
     const n = Number.parseInt(text.trim(), 10);
     return Number.isFinite(n) ? n : NaN;
+  }
+
+  private parseClientName(text: string): { firstName: string; lastName: string } | null {
+    const cleaned = text
+      .replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s'-]/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+    if (cleaned.length < 2) return null;
+    // Evitar que respondan con opción de menú
+    if (/^[0-9]+$/.test(cleaned)) return null;
+    const parts = cleaned.split(' ');
+    if (parts.length === 1) {
+      return { firstName: parts[0], lastName: '—' };
+    }
+    return {
+      firstName: parts[0],
+      lastName: parts.slice(1).join(' ').slice(0, 80),
+    };
+  }
+
+  private async promptBookingName(
+    convoId: string,
+    client: { firstName: string; lastName: string },
+  ) {
+    const placeholder =
+      !client.firstName ||
+      /^cliente$/i.test(client.firstName.trim()) ||
+      /^\d+$/.test(client.lastName || '');
+
+    const current = [client.firstName, client.lastName !== '—' ? client.lastName : '']
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    const message = placeholder
+      ? 'Para agendar tu cita, ¿cuál es tu nombre completo?'
+      : `Para agendar, confirma o escribe tu nombre completo.\n(Actual: ${current})`;
+
+    return this.setState(
+      convoId,
+      WhatsAppConversationState.BOOKING_NAME,
+      {},
+      this.withNav(message),
+      navActions(),
+    );
+  }
+
+  private async handleBookingName(
+    tenantId: string,
+    convoId: string,
+    clientId: string,
+    text: string,
+  ) {
+    const client = await this.prisma.client.findFirst({
+      where: { id: clientId, tenantId, deletedAt: null },
+    });
+    const hasRealName =
+      client &&
+      client.firstName &&
+      !/^cliente$/i.test(client.firstName.trim()) &&
+      !/^\d+$/.test(client.lastName || '');
+
+    if (
+      hasRealName &&
+      /^(si|sí|ok|okay|dale|confirmar|igual)$/i.test(text.trim())
+    ) {
+      return this.promptServices(tenantId, convoId, {
+        greeting: `Perfecto, ${client!.firstName}.`,
+      });
+    }
+
+    const parsed = this.parseClientName(text);
+    if (!parsed) {
+      return this.setState(
+        convoId,
+        WhatsAppConversationState.BOOKING_NAME,
+        {},
+        this.withNav(
+          hasRealName
+            ? 'Escribe tu nombre completo, o responde SI para usar el actual.'
+            : 'Nombre no válido. Escribe tu nombre completo, por ejemplo: María Gómez',
+        ),
+        navActions(),
+      );
+    }
+
+    await this.prisma.client.update({
+      where: { id: clientId },
+      data: {
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+      },
+    });
+
+    return this.promptServices(tenantId, convoId, {
+      greeting: `Gracias, ${parsed.firstName}.`,
+    });
   }
 
   private async handleBookingService(tenantId: string, convoId: string, text: string) {
@@ -850,9 +1042,9 @@ export class WhatsappService {
       orderBy: { updatedAt: 'desc' },
       take: 10,
     });
-    if (matches.length) {
-      // Preferir la conversación que espera confirmación de reserva
-      const awaiting = matches.find((c) => {
+
+    const preferConfirm = (rows: typeof matches) => {
+      const awaiting = rows.find((c) => {
         const cctx = (c.context ?? {}) as ConvoContext;
         return (
           c.state === WhatsAppConversationState.BOOKING_CONFIRM ||
@@ -860,8 +1052,39 @@ export class WhatsappService {
           Boolean(cctx.appointmentId)
         );
       });
-      return awaiting ?? matches[0];
+      return awaiting ?? rows[0];
+    };
+
+    if (matches.length) {
+      return preferConfirm(matches);
     }
+
+    // Inbound LID / teléfono desconocido: tomar la conversación en BOOKING_CONFIRM del tenant
+    if (!this.looksLikeRealPhone(phoneKey)) {
+      const awaiting = await this.prisma.whatsAppConversation.findMany({
+        where: {
+          tenantId,
+          state: WhatsAppConversationState.BOOKING_CONFIRM,
+          updatedAt: { gte: dayjs().subtract(48, 'hour').toDate() },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+      });
+      if (awaiting.length === 1) {
+        this.logger.warn(
+          `Conversación BOOKING_CONFIRM por LID (${phoneKey}) → ${awaiting[0].id}`,
+        );
+        return awaiting[0];
+      }
+      if (awaiting.length > 1) {
+        // Preferir la que tenga appointmentId en contexto
+        const withAppt = awaiting.find(
+          (c) => Boolean((c.context as ConvoContext)?.appointmentId),
+        );
+        if (withAppt) return withAppt;
+      }
+    }
+
     return this.prisma.whatsAppConversation.create({
       data: {
         tenantId,
@@ -888,8 +1111,7 @@ export class WhatsappService {
 
   /**
    * Cita pendiente de confirmar por WhatsApp (reserva web / recordatorio).
-   * Busca por teléfono (todas las fichas del mismo número), no solo clientId.
-   * En IDLE / MENU / BOOKING_CONFIRM prioriza confirmar antes que “1 = Reservar”.
+   * Busca por teléfono, conversaciones BOOKING_CONFIRM y fallback de 1 sola PENDING reciente.
    */
   private async resolveConfirmAppointmentId(
     tenantId: string,
@@ -916,28 +1138,88 @@ export class WhatsappService {
       if (fromCtx) return fromCtx.id;
     }
 
+    // Conversaciones que esperan confirmación (aunque el teléfono del inbound sea LID distinto)
+    const confirmConvos = await this.prisma.whatsAppConversation.findMany({
+      where: {
+        tenantId,
+        updatedAt: { gte: dayjs().subtract(48, 'hour').toDate() },
+        OR: [
+          { state: WhatsAppConversationState.BOOKING_CONFIRM },
+          { phone: { in: phoneLookupVariants(phoneKey) } },
+          { clientId: { in: clientIds } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+    });
+
+    for (const c of confirmConvos) {
+      const cctx = (c.context ?? {}) as ConvoContext;
+      if (!cctx.appointmentId && !cctx.awaitingConfirm) {
+        if (c.state !== WhatsAppConversationState.BOOKING_CONFIRM) continue;
+      }
+      const aid = cctx.appointmentId;
+      if (!aid) continue;
+      const appt = await this.prisma.appointment.findFirst({
+        where: {
+          id: aid,
+          tenantId,
+          deletedAt: null,
+          status: {
+            in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED],
+          },
+        },
+        select: { id: true },
+      });
+      if (appt) return appt.id;
+    }
+
     const shouldScanPending =
       state === WhatsAppConversationState.IDLE ||
       state === WhatsAppConversationState.MENU ||
       state === WhatsAppConversationState.BOOKING_CONFIRM ||
       state === WhatsAppConversationState.BOOKING_SERVICE ||
+      state === WhatsAppConversationState.BOOKING_NAME ||
       Boolean(ctx.awaitingConfirm);
 
-    if (!shouldScanPending) return null;
+    if (shouldScanPending && clientIds.length) {
+      const recent = await this.prisma.appointment.findFirst({
+        where: {
+          tenantId,
+          clientId: { in: clientIds },
+          deletedAt: null,
+          status: AppointmentStatus.PENDING,
+          startAt: { gte: new Date() },
+          createdAt: { gte: dayjs().subtract(48, 'hour').toDate() },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (recent) return recent.id;
+    }
 
-    const recent = await this.prisma.appointment.findFirst({
+    // Fallback: una sola cita web PENDING reciente en el negocio (cubre mismatch LID↔teléfono)
+    const lone = await this.prisma.appointment.findMany({
       where: {
         tenantId,
-        clientId: { in: clientIds },
         deletedAt: null,
         status: AppointmentStatus.PENDING,
         startAt: { gte: new Date() },
-        createdAt: { gte: dayjs().subtract(48, 'hour').toDate() },
+        createdAt: { gte: dayjs().subtract(6, 'hour').toDate() },
+        NOT: { source: 'whatsapp' },
       },
       orderBy: { createdAt: 'desc' },
+      take: 2,
       select: { id: true },
     });
-    return recent?.id ?? null;
+    if (lone.length === 1) {
+      this.logger.warn(
+        `Confirmación WA por fallback (1 PENDING web): ${lone[0].id} phone=${phoneKey}`,
+      );
+      return lone[0].id;
+    }
+
+    return null;
   }
 
   private async handleReminderReply(

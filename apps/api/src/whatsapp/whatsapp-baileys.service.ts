@@ -734,8 +734,12 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
         /* ignore */
       }
 
-      const phone = this.jidToPhone(jid);
-      this.logger.debug(`WA IN ${tenantId} ${phone}: ${text}`);
+      const phone = await this.resolveInboundPhone(sock, msg);
+      if (!phone) {
+        this.logger.warn(`WA IN sin teléfono resoluble: ${jid}`);
+        return;
+      }
+      this.logger.debug(`WA IN ${tenantId} ${phone} (jid=${jid}): ${text}`);
 
       const result = await this.whatsapp.handleIncoming(tenantId, phone, text);
       if (result?.reply) {
@@ -808,9 +812,78 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
 
   private jidToPhone(jid: string) {
     const num = jid.split('@')[0].split(':')[0].replace(/\D/g, '');
-    // Misma forma canónica que normalizePhone (sin +)
     if (num.length === 10 && num.startsWith('3')) return `57${num}`;
     return num;
+  }
+
+  /**
+   * WhatsApp a menudo entrega mensajes con JID @lid (no el número).
+   * Sin mapear a PN, el bot crea otro "cliente" y el "1" no confirma la reserva web.
+   */
+  private async resolveInboundPhone(
+    sock: WASocket,
+    msg: WAMessage,
+  ): Promise<string | null> {
+    const jid = msg.key.remoteJid;
+    if (!jid) return null;
+
+    const key = msg.key as WAMessage['key'] & {
+      remoteJidAlt?: string;
+      senderPn?: string;
+      participantAlt?: string;
+      participantPn?: string;
+    };
+
+    const candidates = [
+      jid.endsWith('@s.whatsapp.net') ? jid : null,
+      key.remoteJidAlt,
+      key.senderPn,
+      key.participantAlt,
+      key.participantPn,
+    ].filter(Boolean) as string[];
+
+    for (const c of candidates) {
+      if (c.includes('@s.whatsapp.net') || (!c.includes('@') && /^\d{10,15}$/.test(c))) {
+        const phone = this.jidToPhone(c.includes('@') ? c : `${c}@s.whatsapp.net`);
+        if (phone.length >= 10) return phone;
+      }
+    }
+
+    if (jid.endsWith('@lid')) {
+      try {
+        const mapping = (
+          sock as WASocket & {
+            signalRepository?: {
+              lidMapping?: {
+                getPNForLID?: (lid: string) => Promise<string | null> | string | null;
+              };
+            };
+          }
+        ).signalRepository?.lidMapping;
+        const pn = mapping?.getPNForLID
+          ? await Promise.resolve(mapping.getPNForLID(jid))
+          : null;
+        if (pn) {
+          const phone = this.jidToPhone(pn);
+          if (phone.length >= 10) {
+            this.logger.debug(`LID ${jid} → PN ${phone}`);
+            return phone;
+          }
+        }
+      } catch (e) {
+        this.logger.debug(
+          `No se pudo mapear LID: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+
+      // Último recurso: conversación BOOKING_CONFIRM reciente del tenant (1 sola)
+      // se resuelve en whatsapp.service; aquí devolvemos null para forzar fallback allí
+      const lidDigits = this.jidToPhone(jid);
+      return lidDigits || null;
+    }
+
+    const phone = this.jidToPhone(jid);
+    return phone.length >= 8 ? phone : null;
   }
 
   /** Normaliza a dígitos internacionales (CO: 10 dígitos móvil → 57…). */

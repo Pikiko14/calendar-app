@@ -704,7 +704,7 @@ onMounted(load)
       <!-- Modal con VeeValidate -->
       <div
         v-if="showModal"
-        class="fixed inset-0 z-40 grid place-items-center bg-ink/50 p-5 backdrop-blur-sm"
+        class="fixed inset-0 z-[100] grid place-items-center bg-ink/50 p-5 pt-20 backdrop-blur-sm md:pt-24"
       >
         <form
           class="surface max-h-[90vh] w-full max-w-md overflow-y-auto p-6 shadow-lift"

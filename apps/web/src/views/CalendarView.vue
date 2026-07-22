@@ -870,7 +870,7 @@ onMounted(load)
 
     <div
       v-if="selected"
-      class="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+      class="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-4 pt-20 sm:items-center md:pt-24"
       @click.self="selected = null"
     >
       <div class="surface w-full max-w-md p-6 shadow-lift">

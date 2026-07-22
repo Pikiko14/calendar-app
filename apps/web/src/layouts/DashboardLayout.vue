@@ -77,7 +77,7 @@ watch(
 
 <template>
   <div class="min-h-screen bg-mist text-ink dark:bg-ink dark:text-mist">
-    <div class="grain-overlay fixed inset-0 z-50 opacity-[0.03]" />
+    <div class="grain-overlay pointer-events-none fixed inset-0 z-[1] opacity-[0.03]" />
 
     <aside
       class="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-black/5 bg-white/70 p-5 backdrop-blur-xl dark:border-white/5 dark:bg-ink-soft/80 md:flex md:flex-col"

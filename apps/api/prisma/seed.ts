@@ -6,9 +6,96 @@ const prisma = new PrismaClient();
 async function main() {
   const passwordHash = await bcrypt.hash('Admin12345!', 12);
 
+  const plans = [
+    {
+      id: 'plan_basico',
+      code: 'BASICO',
+      name: 'Básico',
+      description: 'Ideal para empezar: pocos estilistas y servicios esenciales.',
+      priceMonthly: 25_000,
+      maxWorkers: 2,
+      maxServices: 5,
+      maxBranches: 1,
+      whatsappEnabled: true,
+      aiEnabled: false,
+      features: [
+        '2 estilistas',
+        '5 servicios',
+        '1 sede',
+        'Bot WhatsApp',
+        'Calendario y reservas online',
+      ],
+      sortOrder: 1,
+    },
+    {
+      id: 'plan_pro',
+      code: 'PRO',
+      name: 'Profesional',
+      description: 'Para negocios en crecimiento con más equipo y catálogo.',
+      priceMonthly: 50_000,
+      maxWorkers: 8,
+      maxServices: 25,
+      maxBranches: 3,
+      whatsappEnabled: true,
+      aiEnabled: true,
+      features: [
+        '8 estilistas',
+        '25 servicios',
+        'Hasta 3 sedes',
+        'Bot WhatsApp',
+        'FAQ con IA',
+        'Reportes',
+      ],
+      sortOrder: 2,
+    },
+    {
+      id: 'plan_ilimitado',
+      code: 'ILIMITADO',
+      name: 'Ilimitado',
+      description: 'Todo sin límites para cadenas y negocios de alto volumen.',
+      priceMonthly: 80_000,
+      maxWorkers: null,
+      maxServices: null,
+      maxBranches: null,
+      whatsappEnabled: true,
+      aiEnabled: true,
+      features: [
+        'Estilistas ilimitados',
+        'Servicios ilimitados',
+        'Sedes ilimitadas',
+        'Bot WhatsApp',
+        'FAQ con IA',
+        'Soporte prioritario',
+      ],
+      sortOrder: 3,
+    },
+  ];
+
+  for (const p of plans) {
+    await prisma.plan.upsert({
+      where: { code: p.code },
+      create: p,
+      update: {
+        name: p.name,
+        description: p.description,
+        priceMonthly: p.priceMonthly,
+        maxWorkers: p.maxWorkers,
+        maxServices: p.maxServices,
+        maxBranches: p.maxBranches,
+        whatsappEnabled: p.whatsappEnabled,
+        aiEnabled: p.aiEnabled,
+        features: p.features,
+        sortOrder: p.sortOrder,
+        isActive: true,
+      },
+    });
+  }
+
+  const basico = await prisma.plan.findUniqueOrThrow({ where: { code: 'BASICO' } });
+
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'barberia-premium' },
-    update: {},
+    update: { planId: basico.id, plan: 'STARTER' },
     create: {
       name: 'Barbería Premium',
       slug: 'barberia-premium',
@@ -19,6 +106,8 @@ async function main() {
       country: 'CO',
       mapUrl: 'https://maps.google.com/?q=Bogota',
       primaryColor: '#0F766E',
+      planId: basico.id,
+      plan: 'STARTER',
       settings: {
         create: {
           minBookingNoticeMinutes: 60,

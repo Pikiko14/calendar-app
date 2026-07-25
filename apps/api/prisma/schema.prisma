@@ -159,6 +159,7 @@ model Tenant {
   primaryColor String       @default("#0F766E")
   accentColor  String       @default("#134E4A")
   plan         TenantPlan   @default(STARTER)
+  planId       String?
   status       TenantStatus @default(TRIAL)
   timezone     String       @default("America/Bogota")
   currency     String       @default("COP")
@@ -174,6 +175,7 @@ model Tenant {
   updatedAt    DateTime     @updatedAt
   deletedAt    DateTime?
 
+  planRef           Plan?              @relation(fields: [planId], references: [id])
   settings          TenantSettings?
   branches          Branch[]
   users             User[]
@@ -199,7 +201,38 @@ model Tenant {
 
   @@index([status])
   @@index([slug])
+  @@index([planId])
   @@map("tenants")
+}
+
+// =============================================================================
+// PLANES SAAS
+// =============================================================================
+
+model Plan {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  name            String
+  description     String?
+  priceMonthly    Int
+  currency        String   @default("COP")
+  /// null = ilimitado
+  maxWorkers      Int?
+  /// null = ilimitado
+  maxServices     Int?
+  /// null = ilimitado
+  maxBranches     Int?
+  whatsappEnabled Boolean  @default(true)
+  aiEnabled       Boolean  @default(false)
+  features        Json?
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenants Tenant[]
+
+  @@map("plans")
 }
 
 model TenantSettings {

@@ -14,6 +14,7 @@ type SettingsTab =
   | 'horario'
   | 'especialidades'
   | 'whatsapp'
+  | 'planes'
 
 const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'marca', label: 'Marca' },
@@ -22,6 +23,7 @@ const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'horario', label: 'Horario' },
   { id: 'especialidades', label: 'Especialidades' },
   { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'planes', label: 'Planes' },
 ]
 
 const activeTab = ref<SettingsTab>('marca')
@@ -95,6 +97,87 @@ const waLabel: Record<string, string> = {
   connecting: 'Conectando…',
   qr: 'Escanea el QR',
   connected: 'Conectado',
+}
+
+type PlanRow = {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  priceMonthly: number
+  currency: string
+  maxWorkers: number | null
+  maxServices: number | null
+  maxBranches: number | null
+  features: string[] | null
+  sortOrder: number
+}
+
+const plans = ref<PlanRow[]>([])
+const planCurrent = ref<{
+  plan: PlanRow
+  usage: { workers: number; services: number; branches: number }
+} | null>(null)
+const planBusy = ref(false)
+
+function formatCop(amount: number) {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
+function limitLabel(n: number | null) {
+  return n == null ? 'Ilimitado' : String(n)
+}
+
+function featureList(p: PlanRow): string[] {
+  if (Array.isArray(p.features)) return p.features
+  return []
+}
+
+async function refreshPlans() {
+  try {
+    const [list, current] = await Promise.all([
+      api<PlanRow[]>('/plans'),
+      api<{
+        plan: PlanRow
+        usage: { workers: number; services: number; branches: number }
+      }>('/plans/current'),
+    ])
+    plans.value = list
+    planCurrent.value = current
+  } catch {
+    plans.value = []
+    planCurrent.value = null
+  }
+}
+
+async function selectPlan(planId: string) {
+  if (planCurrent.value?.plan.id === planId) return
+  const target = plans.value.find((p) => p.id === planId)
+  const ok = await confirmAction({
+    title: `¿Cambiar a ${target?.name || 'este plan'}?`,
+    text: target
+      ? `${formatCop(target.priceMonthly)} / mes. Los límites se aplican de inmediato.`
+      : 'Los límites se aplican de inmediato.',
+    confirmText: 'Cambiar plan',
+  })
+  if (!ok) return
+  planBusy.value = true
+  try {
+    await api('/plans/select', {
+      method: 'POST',
+      body: JSON.stringify({ planId }),
+    })
+    await refreshPlans()
+    await toastSuccess('Plan actualizado')
+  } catch (e) {
+    await toastError('No se pudo cambiar el plan', e instanceof Error ? e.message : 'Error')
+  } finally {
+    planBusy.value = false
+  }
 }
 
 async function load() {
@@ -177,6 +260,7 @@ async function load() {
     }
 
     await refreshWhatsapp()
+    await refreshPlans()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'No se pudo cargar'
   } finally {
@@ -874,6 +958,94 @@ const showSaveBar = computed(() =>
             >
               Desconectar
             </button>
+          </div>
+        </article>
+
+        <!-- PLANES -->
+        <article v-show="activeTab === 'planes'" class="surface p-6">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 class="font-display text-xl font-bold">Planes</h2>
+              <p class="mt-1 text-sm text-ink-muted">
+                Elige el plan según el tamaño de tu negocio. Los límites de estilistas y servicios se
+                aplican al crear nuevos registros.
+              </p>
+            </div>
+            <div
+              v-if="planCurrent"
+              class="rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-800 dark:bg-brand-950 dark:text-brand-300"
+            >
+              Actual: {{ planCurrent.plan.name }}
+            </div>
+          </div>
+
+          <div
+            v-if="planCurrent"
+            class="mt-4 grid gap-3 rounded-2xl border border-black/5 bg-black/[0.02] p-4 text-sm sm:grid-cols-3 dark:border-white/10 dark:bg-white/[0.03]"
+          >
+            <div>
+              <p class="text-xs text-ink-muted">Estilistas</p>
+              <p class="mt-1 font-semibold">
+                {{ planCurrent.usage.workers }}
+                <span class="font-normal text-ink-muted">
+                  / {{ limitLabel(planCurrent.plan.maxWorkers) }}
+                </span>
+              </p>
+            </div>
+            <div>
+              <p class="text-xs text-ink-muted">Servicios</p>
+              <p class="mt-1 font-semibold">
+                {{ planCurrent.usage.services }}
+                <span class="font-normal text-ink-muted">
+                  / {{ limitLabel(planCurrent.plan.maxServices) }}
+                </span>
+              </p>
+            </div>
+            <div>
+              <p class="text-xs text-ink-muted">Sedes</p>
+              <p class="mt-1 font-semibold">
+                {{ planCurrent.usage.branches }}
+                <span class="font-normal text-ink-muted">
+                  / {{ limitLabel(planCurrent.plan.maxBranches) }}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div class="mt-6 grid gap-4 lg:grid-cols-3">
+            <div
+              v-for="p in plans"
+              :key="p.id"
+              class="relative flex flex-col rounded-2xl border p-5 transition"
+              :class="
+                planCurrent?.plan.id === p.id
+                  ? 'border-brand-600 bg-brand-50/40 shadow-sm dark:border-brand-400 dark:bg-brand-950/30'
+                  : 'border-black/10 dark:border-white/10'
+              "
+            >
+              <p class="text-xs font-bold uppercase tracking-wide text-ink-muted">{{ p.code }}</p>
+              <h3 class="mt-1 font-display text-2xl font-bold">{{ p.name }}</h3>
+              <p class="mt-2 text-2xl font-bold text-brand-800 dark:text-brand-300">
+                {{ formatCop(p.priceMonthly) }}
+                <span class="text-sm font-medium text-ink-muted">/ mes</span>
+              </p>
+              <p v-if="p.description" class="mt-2 text-sm text-ink-muted">{{ p.description }}</p>
+              <ul class="mt-4 flex-1 space-y-2 text-sm">
+                <li v-for="(f, i) in featureList(p)" :key="i" class="flex gap-2">
+                  <span class="text-brand-700">✓</span>
+                  <span>{{ f }}</span>
+                </li>
+              </ul>
+              <button
+                type="button"
+                class="mt-5 w-full !py-2.5"
+                :class="planCurrent?.plan.id === p.id ? 'btn-ghost' : 'btn-primary'"
+                :disabled="planBusy || planCurrent?.plan.id === p.id"
+                @click="selectPlan(p.id)"
+              >
+                {{ planCurrent?.plan.id === p.id ? 'Plan actual' : planBusy ? 'Cambiando…' : 'Elegir' }}
+              </button>
+            </div>
           </div>
         </article>
 

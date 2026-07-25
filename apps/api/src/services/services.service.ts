@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PlansService } from '../plans/plans.service';
 import { CategoryDto, ServiceDto, UpdateServiceDto } from './dto/services.dto';
 
 @Injectable()
 export class ServicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlansService,
+  ) {}
 
   categories(tenantId: string) {
     return this.prisma.serviceCategory.findMany({
@@ -44,6 +48,7 @@ export class ServicesService {
   }
 
   async create(tenantId: string, dto: ServiceDto) {
+    await this.plans.assertCanCreateService(tenantId);
     const service = await this.prisma.service.create({
       data: { tenantId, ...dto },
     });

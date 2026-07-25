@@ -8,6 +8,7 @@ import { DayOfWeek, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { BranchesService } from '../branches/branches.service';
+import { PlansService } from '../plans/plans.service';
 import { SpecialtiesService } from '../specialties/specialties.service';
 import {
   TimeOffDto,
@@ -23,6 +24,7 @@ export class WorkersService {
     private readonly prisma: PrismaService,
     private readonly branches: BranchesService,
     private readonly specialties: SpecialtiesService,
+    private readonly plans: PlansService,
   ) {}
 
   list(tenantId: string) {
@@ -39,6 +41,7 @@ export class WorkersService {
   }
 
   async create(tenantId: string, dto: WorkerDto) {
+    await this.plans.assertCanCreateWorker(tenantId);
     const main = await this.branches.getOrCreateMain(tenantId);
     const { specialtyIds, password, ...rest } = dto;
     const worker = await this.prisma.worker.create({

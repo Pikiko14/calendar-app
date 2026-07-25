@@ -61,12 +61,15 @@ export class AuthService {
     }
     const hash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.$transaction(async (tx) => {
+      const basico = await tx.plan.findUnique({ where: { code: 'BASICO' } });
       const tenant = await tx.tenant.create({
         data: {
           name: dto.tenantName,
           slug: dto.slug,
           email: dto.email,
           phone: dto.phone,
+          plan: 'STARTER',
+          ...(basico ? { planId: basico.id } : {}),
           settings: { create: {} },
         },
       });

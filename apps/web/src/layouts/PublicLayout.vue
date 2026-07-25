@@ -10,7 +10,7 @@ const isLanding = computed(() => route.path === '/')
 
 <template>
   <div class="relative min-h-screen overflow-x-hidden bg-mist text-ink dark:bg-ink dark:text-mist">
-    <div class="grain-overlay fixed inset-0 z-[60]" />
+    <div class="grain-overlay fixed inset-0 z-[60] pointer-events-none" />
 
     <header
       :class="[
@@ -29,7 +29,7 @@ const isLanding = computed(() => route.path === '/')
           BeautyBook
         </RouterLink>
 
-        <div class="flex items-center gap-2 md:gap-3">
+        <nav class="flex items-center gap-3 md:gap-5">
           <a
             v-if="isLanding"
             href="#planes"
@@ -44,18 +44,6 @@ const isLanding = computed(() => route.path === '/')
           >
             Barberías
           </a>
-          <button
-            type="button"
-            :class="[
-              'rounded-full px-3 py-2 text-xs font-medium transition',
-              isLanding
-                ? 'border border-white/25 bg-white/10 text-white backdrop-blur-md hover:bg-white/20'
-                : 'border border-ink/10 bg-white/60 text-ink hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-mist',
-            ]"
-            @click="theme.toggle"
-          >
-            {{ theme.isDark ? 'Claro' : 'Oscuro' }}
-          </button>
           <RouterLink
             to="/login"
             :class="[
@@ -71,10 +59,20 @@ const isLanding = computed(() => route.path === '/')
           >
             Empezar
           </RouterLink>
-        </div>
+        </nav>
       </div>
     </header>
 
     <RouterView />
+
+    <!-- Tema: control flotante, fuera de la navbar -->
+    <button
+      type="button"
+      class="fixed bottom-5 right-5 z-[70] rounded-full border border-ink/10 bg-white/90 px-3.5 py-2.5 text-xs font-semibold text-ink shadow-soft backdrop-blur-md transition hover:border-brand-600 hover:text-brand-800 dark:border-white/15 dark:bg-ink/90 dark:text-mist dark:hover:border-brand-400 dark:hover:text-brand-300"
+      :aria-label="theme.isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'"
+      @click="theme.toggle"
+    >
+      {{ theme.isDark ? 'Claro' : 'Oscuro' }}
+    </button>
   </div>
 </template>

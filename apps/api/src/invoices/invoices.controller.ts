@@ -40,6 +40,16 @@ export class InvoicesController {
     return this.invoices.summary(tenantId);
   }
 
+  @Get('by-appointment/:appointmentId')
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Buscar factura de una cita' })
+  byAppointment(
+    @TenantId() tenantId: string,
+    @Param('appointmentId') appointmentId: string,
+  ) {
+    return this.invoices.byAppointment(tenantId, appointmentId);
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
   one(@TenantId() tenantId: string, @Param('id') id: string) {

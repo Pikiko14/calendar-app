@@ -3,10 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import 'dayjs/locale/es'
-import { ChevronLeft, ChevronRight, ChevronDown, UsersRound } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, ChevronDown, UsersRound, Receipt, Printer } from '@lucide/vue'
 import { api, mediaUrl } from '@/api/client'
 import { confirmAction, promptText, toastSuccess, toastError } from '@/lib/swal'
 import { useAuthStore } from '@/stores/auth'
+import { printInvoice } from '@/lib/printInvoice'
 
 dayjs.extend(isoWeek)
 dayjs.locale('es')
@@ -36,8 +37,9 @@ type Appointment = {
   endAt?: string
   status: string
   version: number
+  price?: string | number
   workerId?: string
-  client: { firstName: string; lastName: string }
+  client: { firstName: string; lastName: string; phone?: string | null }
   worker: { id?: string; firstName: string; lastName: string }
   service: { name: string; durationMinutes?: number }
 }
@@ -476,6 +478,47 @@ async function cancelAppointment(item: Appointment) {
   if (!reason) return
 
   await setStatus(item, 'CANCELLED', { reason })
+}
+
+async function invoiceFromAppointment(item: Appointment, andPrint = false) {
+  if (isWorkerView.value) return
+  busyId.value = item.id
+  try {
+    let invoice = await api<any>(`/invoices/by-appointment/${item.id}`).catch(() => null)
+    if (!invoice) {
+      const ok = await confirmAction({
+        title: '¿Generar factura?',
+        text: `${item.service.name} · ${item.client.firstName} ${item.client.lastName}${
+          item.price != null ? ` · $${Number(item.price).toLocaleString('es-CO')}` : ''
+        }`,
+        confirmText: 'Generar factura',
+      })
+      if (!ok) return
+      invoice = await api('/invoices/from-appointment', {
+        method: 'POST',
+        body: JSON.stringify({ appointmentId: item.id }),
+      })
+      await toastSuccess('Factura creada', invoice.number)
+    } else {
+      await toastSuccess('Factura existente', invoice.number)
+    }
+
+    if (andPrint && invoice) {
+      const full = invoice.items ? invoice : await api(`/invoices/${invoice.id}`)
+      printInvoice(full, { name: auth.user?.tenant?.name })
+    }
+  } catch (e) {
+    await toastError(
+      'No se pudo facturar',
+      e instanceof Error ? e.message : 'Error',
+    )
+  } finally {
+    busyId.value = null
+  }
+}
+
+function isBillable(status: string) {
+  return ['CONFIRMED', 'COMPLETED', 'ON_THE_WAY', 'PENDING'].includes(status)
 }
 
 onMounted(load)
@@ -919,6 +962,30 @@ onMounted(load)
         <p v-else class="mt-4 text-sm text-ink-muted">
           Esta cita ya está cerrada ({{ statusLabel[selected.status] }}).
         </p>
+
+        <div
+          v-if="!isWorkerView && isBillable(selected.status)"
+          class="mt-4 grid gap-2 border-t border-black/5 pt-4 dark:border-white/10"
+        >
+          <button
+            type="button"
+            class="btn-primary inline-flex items-center justify-center gap-2 !py-3"
+            :disabled="busyId === selected.id"
+            @click="invoiceFromAppointment(selected, true)"
+          >
+            <Receipt class="h-4 w-4" />
+            Facturar e imprimir
+          </button>
+          <button
+            type="button"
+            class="btn-ghost inline-flex items-center justify-center gap-2 !py-3"
+            :disabled="busyId === selected.id"
+            @click="invoiceFromAppointment(selected, false)"
+          >
+            <Printer class="h-4 w-4" />
+            Solo facturar / ver existente
+          </button>
+        </div>
 
         <button type="button" class="btn-ghost mt-4 w-full !py-3" @click="selected = null">
           Cerrar

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { FileText, Plus, Banknote, XCircle } from '@lucide/vue'
+import { FileText, Plus, Banknote, XCircle, Printer } from '@lucide/vue'
 import { api } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
+import { printInvoice } from '@/lib/printInvoice'
+import { useAuthStore } from '@/stores/auth'
 
 type InvoiceRow = {
   id: string
@@ -52,6 +54,7 @@ const busy = ref(false)
 const appointments = ref<AppointmentOption[]>([])
 const selectedAppointmentId = ref('')
 const selectedInvoice = ref<InvoiceRow | null>(null)
+const auth = useAuthStore()
 
 function money(value: string | number | undefined | null) {
   const n = Number(value || 0)
@@ -117,17 +120,31 @@ async function createFromAppointment() {
   if (!selectedAppointmentId.value) return
   busy.value = true
   try {
-    await api('/invoices/from-appointment', {
+    const invoice = await api<InvoiceRow>('/invoices/from-appointment', {
       method: 'POST',
       body: JSON.stringify({ appointmentId: selectedAppointmentId.value }),
     })
     showModal.value = false
     await toastSuccess('Factura creada')
     await load()
+    const full = await api<InvoiceRow>(`/invoices/${invoice.id}`)
+    selectedInvoice.value = full
   } catch (e) {
     await toastError('No se pudo facturar', e instanceof Error ? e.message : 'Error')
   } finally {
     busy.value = false
+  }
+}
+
+async function doPrint(invoice: InvoiceRow) {
+  try {
+    const full =
+      invoice.items && invoice.items.length
+        ? invoice
+        : await api<InvoiceRow>(`/invoices/${invoice.id}`)
+    printInvoice(full, { name: auth.user?.tenant?.name })
+  } catch (e) {
+    await toastError('No se pudo imprimir', e instanceof Error ? e.message : 'Error')
   }
 }
 
@@ -286,6 +303,14 @@ onMounted(load)
             <td class="px-4 py-3">
               <div class="flex flex-wrap justify-end gap-2">
                 <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-ink-muted hover:text-brand-800 dark:bg-white/5"
+                  @click="doPrint(row)"
+                >
+                  <Printer class="h-3.5 w-3.5" />
+                  Imprimir
+                </button>
+                <button
                   v-if="row.status === 'ISSUED'"
                   type="button"
                   class="inline-flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 dark:bg-brand-950 dark:text-brand-300"
@@ -400,8 +425,16 @@ onMounted(load)
           <span>Total</span>
           <span>{{ money(selectedInvoice.total) }}</span>
         </div>
-        <div class="mt-6 flex justify-end">
+        <div class="mt-6 flex flex-wrap justify-end gap-2">
           <button type="button" class="btn-ghost" @click="selectedInvoice = null">Cerrar</button>
+          <button
+            type="button"
+            class="btn-primary inline-flex items-center gap-2"
+            @click="doPrint(selectedInvoice)"
+          >
+            <Printer class="h-4 w-4" />
+            Imprimir
+          </button>
         </div>
       </div>
     </div>

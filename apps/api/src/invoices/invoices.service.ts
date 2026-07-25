@@ -44,6 +44,29 @@ export class InvoicesService {
     });
   }
 
+  async byAppointment(tenantId: string, appointmentId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: {
+        tenantId,
+        appointmentId,
+        status: { not: InvoiceStatus.CANCELLED },
+      },
+      include: {
+        client: true,
+        items: { orderBy: { sortOrder: 'asc' } },
+        appointment: {
+          include: {
+            service: true,
+            worker: { select: { firstName: true, lastName: true } },
+          },
+        },
+        payments: true,
+      },
+      orderBy: { issuedAt: 'desc' },
+    });
+    return invoice;
+  }
+
   async one(tenantId: string, id: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, tenantId },

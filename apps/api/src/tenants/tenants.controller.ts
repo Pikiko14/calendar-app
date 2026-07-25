@@ -13,6 +13,7 @@ import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { TenantId } from '../common/decorators/tenant.decorator';
+import { SkipSubscription } from '../common/decorators/skip-subscription.decorator';
 import { TenantsService } from './tenants.service';
 import { UpdateTenantDto, UpdateTenantSettingsDto } from './dto/tenant.dto';
 
@@ -25,6 +26,7 @@ if (!existsSync(logoUploadDir)) {
 export class TenantsController {
   constructor(private readonly tenants: TenantsService) {}
 
+  @SkipSubscription()
   @Get('me')
   get(@TenantId() id: string) {
     return this.tenants.get(id);
@@ -66,6 +68,7 @@ export class TenantsController {
     return this.tenants.update(id, { logoUrl });
   }
 
+  @SkipSubscription()
   @Get('settings')
   settings(@TenantId() id: string) {
     return this.tenants.settings(id);

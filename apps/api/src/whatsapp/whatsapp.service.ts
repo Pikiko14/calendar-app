@@ -15,6 +15,7 @@ import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { AiService } from '../ai/ai.service';
+import { PlansService } from '../plans/plans.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewsService } from '../reviews/reviews.service';
 import {
@@ -54,8 +55,12 @@ export class WhatsappService {
     private readonly ai: AiService,
     private readonly config: ConfigService,
     private readonly reviews: ReviewsService,
+    private readonly plans: PlansService,
   ) {}
 
+  async assertPlanAllowsWhatsapp(tenantId: string) {
+    await this.plans.assertWhatsappAllowed(tenantId);
+  }
   async handleIncoming(tenantId: string, phone: string, text: string) {
     const normalized = text.trim();
     const phoneKey = normalizePhone(phone);
@@ -565,7 +570,18 @@ export class WhatsappService {
           `Un asesor de ${business} te atenderá pronto.`,
           navActions(),
         );
-      case '7':
+      case '7': {
+        try {
+          await this.plans.assertAiAllowed(tenantId);
+        } catch {
+          return this.setState(
+            convoId,
+            WhatsAppConversationState.MENU,
+            {},
+            'La FAQ con IA no está incluida en tu plan. Elige otra opción:',
+            menuActions(),
+          );
+        }
         return this.setState(
           convoId,
           WhatsAppConversationState.AI_CHAT,
@@ -573,6 +589,7 @@ export class WhatsappService {
           'Pregúntame sobre horarios, ubicación, servicios o precios.',
           navActions(),
         );
+      }
       default:
         return this.setState(
           convoId,
@@ -1371,6 +1388,7 @@ export class WhatsappService {
       return this.setState(convoId, WhatsAppConversationState.MENU, {}, 'Menú principal. Elige 1-7.');
     }
     try {
+      await this.plans.assertAiAllowed(tenantId);
       const reply = await this.ai.answerFaq(tenantId, text);
       return { reply, state: WhatsAppConversationState.AI_CHAT };
     } catch {
@@ -1439,13 +1457,33 @@ export class WhatsappService {
     return null;
   }
 
-  /** Plantillas de mensajes programados (usadas por cron/BullMQ) */
+  /** Plantillas de mensajes programados (usadas por cron) */
   buildReminder24h(clientName: string, time: string) {
     return `Hola ${clientName}.\nTe recordamos tu cita mañana a las ${time}.\n\nResponder:\n1 Confirmar\n2 Reprogramar\n3 Cancelar`;
   }
 
-  buildReminder2h(clientName: string) {
-    return `Hola ${clientName}.\nTe esperamos en 2 horas. ¡Nos vemos pronto!`;
+  buildReminder2h(
+    clientName: string,
+    time: string,
+    serviceName?: string,
+    workerName?: string,
+  ) {
+    const lines = [
+      `Hola ${clientName}.`,
+      '⏰ Recordatorio: tu cita es en aproximadamente 2 horas.',
+      '',
+      `📅 Hoy a las ${time}`,
+    ];
+    if (serviceName) lines.push(`✂️ ${serviceName}`);
+    if (workerName) lines.push(`👤 ${workerName}`);
+    lines.push(
+      '',
+      'Responder:',
+      '1 Confirmar asistencia',
+      '2 Reprogramar',
+      '3 Cancelar cita',
+    );
+    return lines.join('\n');
   }
 
   buildReviewRequest(clientName: string, workerName?: string) {
@@ -1498,6 +1536,12 @@ export class WhatsappService {
     },
   ) {
     await this.getBotConfig(tenantId);
+    if (dto.enabled === true) {
+      await this.plans.assertWhatsappAllowed(tenantId);
+    }
+    if (dto.aiEnabled === true) {
+      await this.plans.assertAiAllowed(tenantId);
+    }
     return this.prisma.whatsAppBotConfig.update({
       where: { tenantId },
       data: {

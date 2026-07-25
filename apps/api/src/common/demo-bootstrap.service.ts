@@ -42,6 +42,34 @@ export class DemoBootstrapService implements OnModuleInit {
         create: { tenantId: existing.id, allowOnlineBooking: true },
         update: { allowOnlineBooking: true },
       });
+      const plan =
+        (await this.prisma.plan.findUnique({ where: { code: 'ILIMITADO' } })) ||
+        (await this.prisma.plan.findUnique({ where: { code: 'BASICO' } }));
+      if (plan) {
+        await this.prisma.subscription.upsert({
+          where: { tenantId: existing.id },
+          create: {
+            tenantId: existing.id,
+            planId: plan.id,
+            status: 'ACTIVE',
+            notes: 'Demo bootstrap',
+          },
+          update: {
+            planId: plan.id,
+            status: 'ACTIVE',
+          },
+        });
+        await this.prisma.tenant.update({
+          where: { id: existing.id },
+          data: {
+            planId: plan.id,
+            plan:
+              plan.code === 'ILIMITADO'
+                ? TenantPlan.ENTERPRISE
+                : TenantPlan.STARTER,
+          },
+        });
+      }
       this.logger.log(`Portal demo OK: /${DEMO_SLUG}`);
       return;
     }
@@ -90,6 +118,17 @@ export class DemoBootstrapService implements OnModuleInit {
           },
         },
         loyaltyProgram: { create: {} },
+        ...(plan
+          ? {
+              subscription: {
+                create: {
+                  planId: plan.id,
+                  status: 'ACTIVE' as const,
+                  notes: 'Demo bootstrap',
+                },
+              },
+            }
+          : {}),
       },
     });
 

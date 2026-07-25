@@ -208,7 +208,8 @@ type PlanUsage = {
     maxWorkers: number | null
     maxServices: number | null
     maxBranches: number | null
-  }
+  } | null
+  subscriptionActive?: boolean
   usage: { workers: number; services: number; branches: number }
 }
 
@@ -300,19 +301,25 @@ onMounted(async () => {
       <div>
         <p class="text-xs font-bold uppercase tracking-wide text-ink-muted">Tu plan</p>
         <h2 class="font-display mt-1 text-xl font-bold">
-          {{ planUsage.plan.name }}
-          <span class="text-base font-medium text-ink-muted">
-            · {{ formatCop(planUsage.plan.priceMonthly) }}/mes
-          </span>
+          <template v-if="planUsage.subscriptionActive && planUsage.plan">
+            {{ planUsage.plan.name }}
+            <span class="text-base font-medium text-ink-muted">
+              · {{ formatCop(planUsage.plan.priceMonthly) }}/mes
+            </span>
+          </template>
+          <template v-else>Sin suscripción</template>
         </h2>
-        <p class="mt-2 text-sm text-ink-muted">
+        <p v-if="planUsage.plan" class="mt-2 text-sm text-ink-muted">
           {{ planUsage.usage.workers }}/{{ limitLabel(planUsage.plan.maxWorkers) }} estilistas
           · {{ planUsage.usage.services }}/{{ limitLabel(planUsage.plan.maxServices) }} servicios
           · {{ planUsage.usage.branches }}/{{ limitLabel(planUsage.plan.maxBranches) }} sedes
         </p>
+        <p v-else class="mt-2 text-sm text-ink-muted">
+          Activa un plan para usar la app.
+        </p>
       </div>
       <span class="text-sm font-semibold text-brand-800 group-hover:underline dark:text-brand-300">
-        Cambiar plan →
+        {{ planUsage.subscriptionActive ? 'Cambiar plan →' : 'Elegir plan →' }}
       </span>
     </RouterLink>
 

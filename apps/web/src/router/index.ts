@@ -55,12 +55,25 @@ router.beforeEach(async (to) => {
     if (auth.isWorker) {
       const allowed = to.name === 'calendar'
       if (!allowed) return { name: 'calendar' }
+    } else if (!auth.hasSubscription) {
+      // Sin suscripción: solo ajustes → planes
+      const onPlans =
+        to.name === 'settings' &&
+        (String(to.query.tab || '') === 'planes' || !to.query.tab)
+      if (!onPlans) {
+        return { name: 'settings', query: { tab: 'planes' } }
+      }
     }
   }
 
   if (to.meta.guest && auth.isAuthenticated) {
     if (!auth.user) await auth.fetchMe()
-    if (auth.user) return { name: auth.homeRoute() }
+    if (auth.user) {
+      if (!auth.hasSubscription && !auth.isWorker) {
+        return { name: 'settings', query: { tab: 'planes' } }
+      }
+      return { name: auth.homeRoute() }
+    }
   }
 
   return true

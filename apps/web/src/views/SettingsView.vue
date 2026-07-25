@@ -46,6 +46,8 @@ function applyTabFromQuery() {
   const tab = String(route.query.tab || '')
   if (SETTINGS_TABS.includes(tab as SettingsTab)) {
     activeTab.value = tab as SettingsTab
+  } else if (!auth.hasSubscription) {
+    activeTab.value = 'planes'
   }
 }
 
@@ -139,8 +141,14 @@ type PlanRow = {
 
 const plans = ref<PlanRow[]>([])
 const planCurrent = ref<{
-  plan: PlanRow
+  plan: PlanRow | null
+  subscriptionActive?: boolean
+  subscription?: { status: string } | null
   usage: { workers: number; services: number; branches: number }
+  limits?: {
+    whatsappEnabled?: boolean
+    aiEnabled?: boolean
+  }
 } | null>(null)
 const planBusy = ref(false)
 
@@ -166,8 +174,11 @@ async function refreshPlans() {
     const [list, current] = await Promise.all([
       api<PlanRow[]>('/plans'),
       api<{
-        plan: PlanRow
+        plan: PlanRow | null
+        subscriptionActive?: boolean
+        subscription?: { status: string } | null
         usage: { workers: number; services: number; branches: number }
+        limits?: { whatsappEnabled?: boolean; aiEnabled?: boolean }
       }>('/plans/current'),
     ])
     plans.value = list
@@ -179,14 +190,14 @@ async function refreshPlans() {
 }
 
 async function selectPlan(planId: string) {
-  if (planCurrent.value?.plan.id === planId) return
+  if (planCurrent.value?.plan?.id === planId && planCurrent.value.subscriptionActive) return
   const target = plans.value.find((p) => p.id === planId)
   const ok = await confirmAction({
-    title: `¿Cambiar a ${target?.name || 'este plan'}?`,
+    title: `¿Activar plan ${target?.name || ''}?`,
     text: target
-      ? `${formatCop(target.priceMonthly)} / mes. Los límites se aplican de inmediato.`
-      : 'Los límites se aplican de inmediato.',
-    confirmText: 'Cambiar plan',
+      ? `${formatCop(target.priceMonthly)} / mes. Se activa la suscripción de inmediato.`
+      : 'Se activa la suscripción de inmediato.',
+    confirmText: 'Activar plan',
   })
   if (!ok) return
   planBusy.value = true
@@ -195,10 +206,11 @@ async function selectPlan(planId: string) {
       method: 'POST',
       body: JSON.stringify({ planId }),
     })
+    await auth.fetchMe()
     await refreshPlans()
-    await toastSuccess('Plan actualizado')
+    await toastSuccess('Suscripción activada')
   } catch (e) {
-    await toastError('No se pudo cambiar el plan', e instanceof Error ? e.message : 'Error')
+    await toastError('No se pudo activar el plan', e instanceof Error ? e.message : 'Error')
   } finally {
     planBusy.value = false
   }
@@ -997,20 +1009,35 @@ const showSaveBar = computed(() =>
             <div>
               <h2 class="font-display text-xl font-bold">Planes</h2>
               <p class="mt-1 text-sm text-ink-muted">
-                Elige el plan según el tamaño de tu negocio. Los límites de estilistas y servicios se
-                aplican al crear nuevos registros.
+                Elige el plan según el tamaño de tu negocio. Sin suscripción activa no puedes usar el
+                resto de la app.
               </p>
             </div>
             <div
-              v-if="planCurrent"
-              class="rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-800 dark:bg-brand-950 dark:text-brand-300"
+              class="rounded-full px-3 py-1 text-xs font-bold"
+              :class="
+                planCurrent?.subscriptionActive
+                  ? 'bg-brand-50 text-brand-800 dark:bg-brand-950 dark:text-brand-300'
+                  : 'bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+              "
             >
-              Actual: {{ planCurrent.plan.name }}
+              {{
+                planCurrent?.subscriptionActive
+                  ? `Activa: ${planCurrent.plan?.name || 'Plan'}`
+                  : 'Sin suscripción'
+              }}
             </div>
           </div>
 
           <div
-            v-if="planCurrent"
+            v-if="!planCurrent?.subscriptionActive"
+            class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            Activa un plan para desbloquear calendario, equipo, servicios y WhatsApp.
+          </div>
+
+          <div
+            v-if="planCurrent?.plan"
             class="mt-4 grid gap-3 rounded-2xl border border-black/5 bg-black/[0.02] p-4 text-sm sm:grid-cols-3 dark:border-white/10 dark:bg-white/[0.03]"
           >
             <div>
@@ -1048,7 +1075,7 @@ const showSaveBar = computed(() =>
               :key="p.id"
               class="relative flex flex-col rounded-2xl border p-5 transition"
               :class="
-                planCurrent?.plan.id === p.id
+                planCurrent?.subscriptionActive && planCurrent?.plan?.id === p.id
                   ? 'border-brand-600 bg-brand-50/40 shadow-sm dark:border-brand-400 dark:bg-brand-950/30'
                   : 'border-black/10 dark:border-white/10'
               "
@@ -1069,11 +1096,24 @@ const showSaveBar = computed(() =>
               <button
                 type="button"
                 class="mt-5 w-full !py-2.5"
-                :class="planCurrent?.plan.id === p.id ? 'btn-ghost' : 'btn-primary'"
-                :disabled="planBusy || planCurrent?.plan.id === p.id"
+                :class="
+                  planCurrent?.subscriptionActive && planCurrent?.plan?.id === p.id
+                    ? 'btn-ghost'
+                    : 'btn-primary'
+                "
+                :disabled="
+                  planBusy ||
+                  (planCurrent?.subscriptionActive && planCurrent?.plan?.id === p.id)
+                "
                 @click="selectPlan(p.id)"
               >
-                {{ planCurrent?.plan.id === p.id ? 'Plan actual' : planBusy ? 'Cambiando…' : 'Elegir' }}
+                {{
+                  planCurrent?.subscriptionActive && planCurrent?.plan?.id === p.id
+                    ? 'Plan actual'
+                    : planBusy
+                      ? 'Activando…'
+                      : 'Activar'
+                }}
               </button>
             </div>
           </div>

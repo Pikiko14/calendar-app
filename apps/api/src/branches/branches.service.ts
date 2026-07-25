@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DayOfWeek } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PlansService } from '../plans/plans.service';
 import {
   DEFAULT_WEEK_BLOCKS,
   type DayKey,
@@ -13,7 +14,10 @@ import {
 
 @Injectable()
 export class BranchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlansService,
+  ) {}
 
   list(tenantId: string) {
     return this.prisma.branch.findMany({
@@ -22,7 +26,8 @@ export class BranchesService {
     });
   }
 
-  create(tenantId: string, dto: BranchDto) {
+  async create(tenantId: string, dto: BranchDto) {
+    await this.plans.assertCanCreateBranch(tenantId);
     return this.prisma.branch.create({ data: { tenantId, ...dto } });
   }
 

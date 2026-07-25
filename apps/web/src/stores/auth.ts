@@ -10,6 +10,7 @@ export type AuthUser = {
   lastName?: string
   role?: string
   tenantId?: string | null
+  subscriptionActive?: boolean
   worker?: { id: string; firstName: string; lastName: string } | null
   tenant?: {
     id: string
@@ -17,6 +18,31 @@ export type AuthUser = {
     slug: string
     logoUrl?: string | null
     primaryColor?: string | null
+    plan?: string
+    planId?: string | null
+    status?: string
+    subscription?: {
+      id: string
+      status: string
+      startsAt?: string
+      endsAt?: string | null
+      plan?: {
+        id: string
+        code: string
+        name: string
+        priceMonthly: number
+        whatsappEnabled?: boolean
+        aiEnabled?: boolean
+      }
+    } | null
+    planRef?: {
+      id: string
+      code: string
+      name: string
+      priceMonthly: number
+      whatsappEnabled?: boolean
+      aiEnabled?: boolean
+    } | null
   } | null
 }
 
@@ -50,6 +76,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => Boolean(token.value))
   const isWorker = computed(() => user.value?.role === 'WORKER')
   const workerId = computed(() => user.value?.worker?.id ?? null)
+  const hasSubscription = computed(() => Boolean(user.value?.subscriptionActive))
   const displayName = computed(() => {
     if (!user.value) return ''
     if (user.value.firstName) return `${user.value.firstName} ${user.value.lastName ?? ''}`.trim()
@@ -57,6 +84,7 @@ export const useAuthStore = defineStore('auth', () => {
   })
 
   function homeRoute() {
+    if (!hasSubscription.value && !isWorker.value) return 'settings'
     return isWorker.value ? 'calendar' : 'dashboard'
   }
 
@@ -163,6 +191,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     isWorker,
     workerId,
+    hasSubscription,
     displayName,
     homeRoute,
     login,

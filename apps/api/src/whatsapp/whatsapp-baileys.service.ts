@@ -250,6 +250,8 @@ export class WhatsappBaileysService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    await this.whatsapp.assertPlanAllowsWhatsapp(tenantId);
+
     const config = await this.whatsapp.getBotConfig(tenantId);
     if (!config.enabled) {
       await this.whatsapp.updateBotConfig(tenantId, { enabled: true });

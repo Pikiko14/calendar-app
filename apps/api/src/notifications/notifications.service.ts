@@ -443,11 +443,11 @@ export class NotificationsService {
     }
   }
 
-  /** Recordatorio 2h antes */
-  @Cron(CronExpression.EVERY_30_MINUTES)
+  /** Recordatorio ~2h antes + opción de cancelar por WhatsApp */
+  @Cron('*/15 * * * *')
   async remind2h() {
-    const from = dayjs().add(110, 'minute').toDate();
-    const to = dayjs().add(130, 'minute').toDate();
+    const from = dayjs().add(105, 'minute').toDate();
+    const to = dayjs().add(135, 'minute').toDate();
     const appointments = await this.prisma.appointment.findMany({
       where: {
         deletedAt: null,
@@ -456,21 +456,83 @@ export class NotificationsService {
         },
         startAt: { gte: from, lte: to },
       },
-      include: { client: true, tenant: { include: { settings: true } } },
+      include: {
+        client: true,
+        worker: true,
+        service: true,
+        tenant: { include: { settings: true } },
+      },
     });
 
+    let sent = 0;
     for (const a of appointments) {
       if (!a.tenant.settings?.reminder2HoursBefore) continue;
-      const phone = a.client.whatsapp || a.client.phone;
+
+      const phoneRaw = a.client.whatsapp || a.client.phone;
+      if (!phoneRaw) continue;
+      const phone = normalizePhone(phoneRaw);
       if (!phone) continue;
-      const body = this.whatsapp.buildReminder2h(a.client.firstName);
+
+      // Evitar reenvíos del mismo recordatorio 2h
+      const already = await this.prisma.notification.findFirst({
+        where: {
+          tenantId: a.tenantId,
+          channel: NotificationChannel.WHATSAPP,
+          subject: 'Recordatorio 2h',
+          status: {
+            in: [NotificationStatus.SENT, NotificationStatus.PENDING],
+          },
+          metadata: {
+            path: ['appointmentId'],
+            equals: a.id,
+          },
+        },
+        select: { id: true },
+      });
+      if (already) continue;
+
+      const time = dayjs(a.startAt).format('h:mm A');
+      const workerName =
+        `${a.worker.firstName} ${a.worker.lastName}`.trim() || undefined;
+      const body = this.whatsapp.buildReminder2h(
+        a.client.firstName,
+        time,
+        a.service.name,
+        workerName,
+      );
+
       await this.send(
         a.tenantId,
         NotificationChannel.WHATSAPP,
         phone,
         body,
         'Recordatorio 2h',
+        {
+          appointmentId: a.id,
+          kind: 'reminder_2h',
+        },
       );
+
+      await this.prisma.whatsAppConversation.upsert({
+        where: { tenantId_phone: { tenantId: a.tenantId, phone } },
+        create: {
+          tenantId: a.tenantId,
+          clientId: a.clientId,
+          phone,
+          state: 'BOOKING_CONFIRM',
+          context: { appointmentId: a.id, awaitingConfirm: true },
+        },
+        update: {
+          clientId: a.clientId,
+          state: 'BOOKING_CONFIRM',
+          context: { appointmentId: a.id, awaitingConfirm: true },
+        },
+      });
+      sent += 1;
+    }
+
+    if (sent) {
+      this.logger.log(`Recordatorios 2h enviados: ${sent}`);
     }
   }
 

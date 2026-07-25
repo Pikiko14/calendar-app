@@ -61,15 +61,14 @@ export class AuthService {
     }
     const hash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.$transaction(async (tx) => {
-      const basico = await tx.plan.findUnique({ where: { code: 'BASICO' } });
       const tenant = await tx.tenant.create({
         data: {
           name: dto.tenantName,
           slug: dto.slug,
           email: dto.email,
           phone: dto.phone,
-          plan: 'STARTER',
-          ...(basico ? { planId: basico.id } : {}),
+          status: 'TRIAL',
+          // Sin suscripción hasta elegir plan
           settings: { create: {} },
         },
       });
@@ -141,7 +140,7 @@ export class AuthService {
   }
 
   async me(id: string) {
-    return this.prisma.user.findFirst({
+    const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },
       select: {
         id: true,
@@ -150,9 +149,61 @@ export class AuthService {
         lastName: true,
         role: true,
         tenantId: true,
-        tenant: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            logoUrl: true,
+            primaryColor: true,
+            plan: true,
+            planId: true,
+            status: true,
+            planRef: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                priceMonthly: true,
+                whatsappEnabled: true,
+                aiEnabled: true,
+              },
+            },
+            subscription: {
+              select: {
+                id: true,
+                status: true,
+                startsAt: true,
+                endsAt: true,
+                plan: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    priceMonthly: true,
+                    whatsappEnabled: true,
+                    aiEnabled: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         worker: { select: { id: true, firstName: true, lastName: true } },
       },
     });
+    if (!user) return null;
+
+    const sub = user.tenant?.subscription;
+    const subscriptionActive = Boolean(
+      sub &&
+        (sub.status === 'ACTIVE' || sub.status === 'TRIAL') &&
+        (!sub.endsAt || sub.endsAt.getTime() > Date.now()),
+    );
+
+    return {
+      ...user,
+      subscriptionActive,
+    };
   }
 }

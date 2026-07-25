@@ -1,2 +1,35 @@
-import { Body, Controller, Get, Post } from '@nestjs/common'; import { CurrentUser } from '../common/decorators/current-user.decorator'; import { Public } from '../common/decorators/public.decorator'; import { AuthService } from './auth.service'; import { LoginDto, RefreshDto, RegisterTenantDto } from './dto/auth.dto';
-@Controller('auth') export class AuthController { constructor(private auth:AuthService){} @Public() @Post('register') register(@Body() dto:RegisterTenantDto){return this.auth.register(dto)} @Public() @Post('login') login(@Body() dto:LoginDto){return this.auth.login(dto)} @Public() @Post('refresh') refresh(@Body() dto:RefreshDto){return this.auth.refresh(dto.refreshToken)} @Get('me') me(@CurrentUser('sub') id:string){return this.auth.me(id)} }
+import { Body, Controller, Get, Post } from '@nestjs/common';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Public } from '../common/decorators/public.decorator';
+import { SkipSubscription } from '../common/decorators/skip-subscription.decorator';
+import { AuthService } from './auth.service';
+import { LoginDto, RefreshDto, RegisterTenantDto } from './dto/auth.dto';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private auth: AuthService) {}
+
+  @Public()
+  @Post('register')
+  register(@Body() dto: RegisterTenantDto) {
+    return this.auth.register(dto);
+  }
+
+  @Public()
+  @Post('login')
+  login(@Body() dto: LoginDto) {
+    return this.auth.login(dto);
+  }
+
+  @Public()
+  @Post('refresh')
+  refresh(@Body() dto: RefreshDto) {
+    return this.auth.refresh(dto.refreshToken);
+  }
+
+  @SkipSubscription()
+  @Get('me')
+  me(@CurrentUser('sub') id: string) {
+    return this.auth.me(id);
+  }
+}

@@ -25,6 +25,7 @@ import { PublicModule } from './public/public.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { PlansModule } from './plans/plans.module';
+import { InvoicesModule } from './invoices/invoices.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { PlansModule } from './plans/plans.module';
     PublicModule,
     ReviewsModule,
     PlansModule,
+    InvoicesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

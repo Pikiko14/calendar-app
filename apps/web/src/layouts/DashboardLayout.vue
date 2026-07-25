@@ -12,6 +12,7 @@ import {
   SunMedium,
   MoonStar,
   ExternalLink,
+  Receipt,
 } from '@lucide/vue'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
@@ -33,6 +34,7 @@ const navAll = [
   { label: 'Servicios', to: '/app/services', icon: Scissors },
   { label: 'Equipo', to: '/app/workers', icon: UsersRound },
   { label: 'Clientes', to: '/app/clients', icon: Contact },
+  { label: 'Facturación', to: '/app/invoices', icon: Receipt },
   { label: 'Ajustes', to: '/app/settings', icon: Settings2 },
 ]
 

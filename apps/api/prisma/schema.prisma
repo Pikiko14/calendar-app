@@ -79,6 +79,13 @@ enum PaymentProvider {
   LOCAL
 }
 
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  CANCELLED
+}
+
 enum NotificationChannel {
   EMAIL
   WHATSAPP
@@ -630,6 +637,7 @@ model Client {
   giftCards       GiftCard[]
   reviews         Review[]
   whatsappConvos  WhatsAppConversation[]
+  invoices        Invoice[]
 
   @@unique([tenantId, phone])
   @@index([tenantId, email])
@@ -679,6 +687,7 @@ model Appointment {
   payments   Payment[]
   review     Review?
   timeBlocks CalendarBlock[]
+  invoices   Invoice[]
 
   @@index([tenantId, startAt, endAt])
   @@index([workerId, startAt, endAt])
@@ -744,6 +753,7 @@ model Payment {
   id              String          @id @default(cuid())
   tenantId        String
   appointmentId   String?
+  invoiceId       String?
   amount          Decimal         @db.Decimal(12, 2)
   currency        String          @default("COP")
   status          PaymentStatus   @default(PENDING)
@@ -757,9 +767,11 @@ model Payment {
   updatedAt       DateTime        @updatedAt
 
   appointment Appointment? @relation(fields: [appointmentId], references: [id])
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id])
 
   @@index([tenantId, status])
   @@index([appointmentId])
+  @@index([invoiceId])
   @@map("payments")
 }
 
@@ -824,22 +836,52 @@ model Expense {
 }
 
 model Invoice {
-  id          String   @id @default(cuid())
-  tenantId    String
-  number      String
-  clientId    String?
-  subtotal    Decimal  @db.Decimal(12, 2)
-  tax         Decimal  @default(0) @db.Decimal(12, 2)
-  total       Decimal  @db.Decimal(12, 2)
-  issuedAt    DateTime @default(now())
-  pdfUrl      String?
-  metadata    Json?
+  id            String        @id @default(cuid())
+  tenantId      String
+  number        String
+  clientId      String?
+  appointmentId String?
+  status        InvoiceStatus @default(ISSUED)
+  currency      String        @default("COP")
+  subtotal      Decimal       @db.Decimal(12, 2)
+  tax           Decimal       @default(0) @db.Decimal(12, 2)
+  total         Decimal       @db.Decimal(12, 2)
+  notes         String?
+  issuedAt      DateTime      @default(now())
+  paidAt        DateTime?
+  pdfUrl        String?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client      Client?        @relation(fields: [clientId], references: [id])
+  appointment Appointment?   @relation(fields: [appointmentId], references: [id])
+  items       InvoiceItem[]
+  payments    Payment[]
 
   @@unique([tenantId, number])
-  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, issuedAt])
+  @@index([clientId])
+  @@index([appointmentId])
   @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Int     @default(1)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  total       Decimal @db.Decimal(12, 2)
+  serviceId   String?
+  sortOrder   Int     @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
 }
 
 // =============================================================================

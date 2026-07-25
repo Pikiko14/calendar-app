@@ -9,6 +9,7 @@ import CalendarView from '@/views/CalendarView.vue'
 import ManagementView from '@/views/ManagementView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import BookingView from '@/views/BookingView.vue'
+import InvoicesView from '@/views/InvoicesView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -35,6 +36,7 @@ const router = createRouter({
         { path: 'workers', name: 'workers', component: ManagementView },
         { path: 'clients', name: 'clients', component: ManagementView },
         { path: 'clients/:id', name: 'client-detail', component: ManagementView },
+        { path: 'invoices', name: 'invoices', component: InvoicesView },
         { path: 'settings', name: 'settings', component: SettingsView },
       ],
     },

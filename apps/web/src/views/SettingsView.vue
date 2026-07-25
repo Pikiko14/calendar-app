@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api, apiUpload, mediaUrl } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
 import { applyBrandTheme } from '@/lib/brand'
@@ -28,13 +29,36 @@ const tabs: Array<{ id: SettingsTab; label: string }> = [
 
 const activeTab = ref<SettingsTab>('marca')
 const auth = useAuthStore()
+const route = useRoute()
 const locationPickerRef = ref<{ refreshMapSize: () => void } | null>(null)
+
+const SETTINGS_TABS: SettingsTab[] = [
+  'marca',
+  'ubicacion',
+  'reservas',
+  'horario',
+  'especialidades',
+  'whatsapp',
+  'planes',
+]
+
+function applyTabFromQuery() {
+  const tab = String(route.query.tab || '')
+  if (SETTINGS_TABS.includes(tab as SettingsTab)) {
+    activeTab.value = tab as SettingsTab
+  }
+}
 
 watch(activeTab, async (tab) => {
   if (tab !== 'ubicacion') return
   await nextTick()
   locationPickerRef.value?.refreshMapSize()
 })
+
+watch(
+  () => route.query.tab,
+  () => applyTabFromQuery(),
+)
 
 const COLOR_PRESETS = [
   '#0F766E',
@@ -565,7 +589,10 @@ async function applyToTeam() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  applyTabFromQuery()
+  void load()
+})
 onUnmounted(stopWaPoll)
 
 const colorHex = computed({
@@ -597,7 +624,10 @@ const showSaveBar = computed(() =>
 </script>
 
 <template>
-  <section class="animate-fade-in max-w-3xl">
+  <section
+    class="animate-fade-in"
+    :class="activeTab === 'planes' ? 'max-w-6xl' : 'max-w-3xl'"
+  >
     <p class="section-eyebrow">Negocio</p>
     <h1 class="font-display mt-2 text-display-md font-bold">Ajustes</h1>
 

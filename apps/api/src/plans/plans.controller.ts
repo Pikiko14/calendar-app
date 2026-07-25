@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsString, MinLength } from 'class-validator';
 import { UserRole } from '@prisma/client';
+import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { TenantId } from '../common/decorators/tenant.decorator';
 import { PlansService } from './plans.service';
@@ -17,14 +18,9 @@ class SelectPlanDto {
 export class PlansController {
   constructor(private readonly plans: PlansService) {}
 
+  @Public()
   @Get()
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.RECEPTIONIST,
-    UserRole.SUPER_ADMIN,
-    UserRole.WORKER,
-  )
-  @ApiOperation({ summary: 'Listar planes disponibles' })
+  @ApiOperation({ summary: 'Listar planes disponibles (público)' })
   list() {
     return this.plans.list();
   }
@@ -48,11 +44,13 @@ export class PlansController {
     return this.plans.selectPlan(tenantId, body.planId);
   }
 
+  @Public()
   @Get(':code')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Detalle de un plan por código' })
   async byCode(@Param('code') code: string) {
     const plans = await this.plans.list();
-    return plans.find((p) => p.code.toLowerCase() === code.toLowerCase()) ?? null;
+    return (
+      plans.find((p) => p.code.toLowerCase() === code.toLowerCase()) ?? null
+    );
   }
 }

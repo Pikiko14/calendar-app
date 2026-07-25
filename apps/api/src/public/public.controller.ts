@@ -34,6 +34,63 @@ export class PublicController {
     private readonly reviews: ReviewsService,
   ) {}
 
+  /** Catálogo público de negocios con reserva online. */
+  @Public()
+  @Get('businesses')
+  async businesses() {
+    const tenants = await this.prisma.tenant.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ['ACTIVE', 'TRIAL'] },
+        settings: { allowOnlineBooking: true },
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logoUrl: true,
+        primaryColor: true,
+        address: true,
+        city: true,
+        country: true,
+        settings: {
+          select: {
+            bookingPageTitle: true,
+            bookingPageSubtitle: true,
+          },
+        },
+        _count: {
+          select: {
+            workers: { where: { deletedAt: null, isActive: true } },
+            services: { where: { deletedAt: null, isActive: true } },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return Promise.all(
+      tenants.map(async (t) => {
+        const rating = await this.reviews.getTenantRating(t.id);
+        return {
+          id: t.id,
+          name: t.name,
+          slug: t.slug,
+          logoUrl: t.logoUrl,
+          primaryColor: t.primaryColor,
+          address: t.address,
+          city: t.city,
+          country: t.country,
+          title: t.settings?.bookingPageTitle || t.name,
+          subtitle: t.settings?.bookingPageSubtitle || null,
+          workersCount: t._count.workers,
+          servicesCount: t._count.services,
+          rating,
+        };
+      }),
+    );
+  }
+
   @Public()
   @Get(':slug')
   async tenant(@Param('slug') slug: string) {

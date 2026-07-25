@@ -192,17 +192,48 @@ const quickActions = [
     color: 'bg-sky-50 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
   },
   {
-    to: '/app/settings',
+    to: '/app/settings?tab=planes',
     title: 'Ajustes',
-    desc: 'Marca y zona',
+    desc: 'Marca y plan',
     icon: Settings2,
     color: 'bg-violet-50 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
   },
 ]
 
+type PlanUsage = {
+  plan: {
+    id: string
+    name: string
+    priceMonthly: number
+    maxWorkers: number | null
+    maxServices: number | null
+    maxBranches: number | null
+  }
+  usage: { workers: number; services: number; branches: number }
+}
+
+const planUsage = ref<PlanUsage | null>(null)
+
+function limitLabel(n: number | null) {
+  return n == null ? '∞' : String(n)
+}
+
+function formatCop(amount: number) {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
 onMounted(async () => {
   try {
-    metrics.value = await api<Metrics>('/dashboard')
+    const [dash, plan] = await Promise.all([
+      api<Metrics>('/dashboard'),
+      api<PlanUsage>('/plans/current').catch(() => null),
+    ])
+    metrics.value = dash
+    planUsage.value = plan
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'No se pudo cargar el dashboard'
   } finally {
@@ -259,6 +290,31 @@ onMounted(async () => {
     </div>
 
     <p v-if="error" class="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{{ error }}</p>
+
+    <!-- Plan actual -->
+    <RouterLink
+      v-if="planUsage"
+      to="/app/settings?tab=planes"
+      class="surface group flex flex-col gap-4 p-5 transition hover:-translate-y-0.5 hover:shadow-lift sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wide text-ink-muted">Tu plan</p>
+        <h2 class="font-display mt-1 text-xl font-bold">
+          {{ planUsage.plan.name }}
+          <span class="text-base font-medium text-ink-muted">
+            · {{ formatCop(planUsage.plan.priceMonthly) }}/mes
+          </span>
+        </h2>
+        <p class="mt-2 text-sm text-ink-muted">
+          {{ planUsage.usage.workers }}/{{ limitLabel(planUsage.plan.maxWorkers) }} estilistas
+          · {{ planUsage.usage.services }}/{{ limitLabel(planUsage.plan.maxServices) }} servicios
+          · {{ planUsage.usage.branches }}/{{ limitLabel(planUsage.plan.maxBranches) }} sedes
+        </p>
+      </div>
+      <span class="text-sm font-semibold text-brand-800 group-hover:underline dark:text-brand-300">
+        Cambiar plan →
+      </span>
+    </RouterLink>
 
     <!-- Quick actions -->
     <div>

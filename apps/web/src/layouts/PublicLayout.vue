@@ -30,6 +30,20 @@ const isLanding = computed(() => route.path === '/')
         </RouterLink>
 
         <div class="flex items-center gap-2 md:gap-3">
+          <a
+            v-if="isLanding"
+            href="#planes"
+            class="hidden text-sm font-medium text-white/90 transition hover:text-white sm:inline"
+          >
+            Planes
+          </a>
+          <a
+            v-if="isLanding"
+            href="#barberias"
+            class="hidden text-sm font-medium text-white/90 transition hover:text-white sm:inline"
+          >
+            Barberías
+          </a>
           <button
             type="button"
             :class="[

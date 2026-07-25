@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, mediaUrl } from '@/api/client'
 
 const features = [
@@ -52,6 +52,14 @@ const businessesError = ref('')
 
 const plans = ref<Plan[]>([])
 const plansLoading = ref(true)
+
+/** Preferir demo oficial; si no, el primer negocio público. */
+const demoPortalPath = computed(() => {
+  const demo = businesses.value.find((b) => b.slug === 'barberia-premium')
+  if (demo) return `/${demo.slug}`
+  if (businesses.value[0]) return `/${businesses.value[0].slug}`
+  return '/barberia-premium'
+})
 
 function placeLabel(b: Business) {
   return [b.city, b.country].filter(Boolean).join(', ')
@@ -130,9 +138,12 @@ onMounted(async () => {
           <RouterLink to="/register" class="btn-primary !bg-white !text-ink hover:!bg-mist">
             Crear mi empresa
           </RouterLink>
-          <a href="#planes" class="btn-ghost !border-white/30 !bg-white/10 !text-white hover:!bg-white/20">
-            Ver planes
-          </a>
+          <RouterLink
+            :to="demoPortalPath"
+            class="btn-ghost !border-white/30 !bg-white/10 !text-white hover:!bg-white/20"
+          >
+            Ver portal demo
+          </RouterLink>
         </div>
       </div>
 

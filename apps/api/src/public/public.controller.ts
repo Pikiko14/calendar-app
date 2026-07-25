@@ -120,7 +120,9 @@ export class PublicController {
         },
       },
     });
-    if (!tenant) return null;
+    if (!tenant) {
+      throw new NotFoundException('Portal no encontrado');
+    }
     const rating = await this.reviews.getTenantRating(tenant.id);
     return { ...tenant, rating };
   }

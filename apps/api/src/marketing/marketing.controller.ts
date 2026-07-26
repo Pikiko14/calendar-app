@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   IsBoolean,
@@ -57,6 +57,11 @@ export class MarketingController {
     return this.marketing.toggleCoupon(tenantId, id, dto.isActive);
   }
 
+  @Delete('coupons/:id')
+  removeCoupon(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.marketing.removeCoupon(tenantId, id);
+  }
+
   @Get('gift-cards')
   giftCards(@TenantId() tenantId: string) {
     return this.marketing.listGiftCards(tenantId);
@@ -74,5 +79,10 @@ export class MarketingController {
     @Body() dto: ToggleDto,
   ) {
     return this.marketing.toggleGiftCard(tenantId, id, dto.isActive);
+  }
+
+  @Delete('gift-cards/:id')
+  removeGift(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.marketing.removeGiftCard(tenantId, id);
   }
 }

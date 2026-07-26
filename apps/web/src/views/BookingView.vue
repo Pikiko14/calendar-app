@@ -64,8 +64,6 @@ const publicReviews = ref<
     worker: { firstName: string; lastName: string }
   }>
 >([])
-const waitlistBusy = ref(false)
-const waitlistDone = ref(false)
 
 const dates = computed(() => {
   const ahead = Math.min(tenant.value?.settings?.maxBookingDaysAhead ?? 14, 60)
@@ -104,33 +102,6 @@ onMounted(async () => {
     loading.value = false
   }
 })
-
-async function joinWaitlist() {
-  if (!serviceId.value || !firstName.value || phone.value.length < 8) {
-    error.value = 'Completa nombre, teléfono y servicio para la lista de espera.'
-    return
-  }
-  waitlistBusy.value = true
-  error.value = ''
-  try {
-    await api(`/public/${slug.value}/waitlist`, {
-      method: 'POST',
-      body: JSON.stringify({
-        firstName: firstName.value,
-        lastName: lastName.value || undefined,
-        phone: phone.value,
-        serviceId: serviceId.value,
-        workerId: autoWorker.value ? undefined : workerId.value || undefined,
-        preferredDate: date.value || undefined,
-      }),
-    })
-    waitlistDone.value = true
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'No se pudo unir a la lista'
-  } finally {
-    waitlistBusy.value = false
-  }
-}
 
 async function loadWorkersForService(id: string) {
   if (!id) {
@@ -417,30 +388,9 @@ function initials(w: Worker) {
             Servicio de {{ selectedService.durationMinutes }} min · horarios cada
             {{ selectedService.durationMinutes }} min
           </p>
-          <p v-if="!slots.length" class="mt-4 text-sm text-ink-muted">No hay horarios ese día.</p>
-          <div
-            v-if="!slots.length"
-            class="mt-4 rounded-2xl border border-dashed border-brand-700/30 bg-brand-50/40 p-4 dark:bg-brand-950/20"
-          >
-            <p class="text-sm font-medium">¿Sin cupo? Únete a la lista de espera</p>
-            <div class="mt-3 space-y-2">
-              <input v-model="firstName" placeholder="Nombre" class="input-field" />
-              <input v-model="lastName" placeholder="Apellido" class="input-field" />
-              <input v-model="phone" placeholder="WhatsApp" class="input-field" />
-            </div>
-            <p v-if="waitlistDone" class="mt-3 text-sm text-brand-800 dark:text-brand-300">
-              Te avisaremos cuando haya disponibilidad.
-            </p>
-            <button
-              v-else
-              type="button"
-              class="btn-primary mt-3 disabled:opacity-40"
-              :disabled="waitlistBusy || !firstName || phone.length < 8"
-              @click="joinWaitlist"
-            >
-              Unirme a la lista
-            </button>
-          </div>
+          <p v-if="!slots.length" class="mt-4 text-sm text-ink-muted">
+            No hay horarios ese día. Prueba con otra fecha.
+          </p>
           <div class="mt-4 grid grid-cols-3 gap-2.5">
             <button
               v-for="slot in slots"

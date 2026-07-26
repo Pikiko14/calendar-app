@@ -51,6 +51,13 @@ export class MarketingService {
     return this.prisma.coupon.update({ where: { id }, data: { isActive } });
   }
 
+  async removeCoupon(tenantId: string, id: string) {
+    const c = await this.prisma.coupon.findFirst({ where: { id, tenantId } });
+    if (!c) throw new NotFoundException('Cupón no encontrado.');
+    await this.prisma.coupon.delete({ where: { id } });
+    return { ok: true };
+  }
+
   listGiftCards(tenantId: string) {
     return this.prisma.giftCard.findMany({
       where: { tenantId },
@@ -86,5 +93,12 @@ export class MarketingService {
     const g = await this.prisma.giftCard.findFirst({ where: { id, tenantId } });
     if (!g) throw new NotFoundException('Gift card no encontrada.');
     return this.prisma.giftCard.update({ where: { id }, data: { isActive } });
+  }
+
+  async removeGiftCard(tenantId: string, id: string) {
+    const g = await this.prisma.giftCard.findFirst({ where: { id, tenantId } });
+    if (!g) throw new NotFoundException('Gift card no encontrada.');
+    await this.prisma.giftCard.delete({ where: { id } });
+    return { ok: true };
   }
 }

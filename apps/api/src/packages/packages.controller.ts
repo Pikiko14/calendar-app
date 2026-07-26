@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   IsBoolean,
@@ -80,5 +80,11 @@ export class PackagesController {
     @Body() dto: ToggleDto,
   ) {
     return this.packages.toggle(tenantId, id, dto.isActive);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  remove(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.packages.remove(tenantId, id);
   }
 }

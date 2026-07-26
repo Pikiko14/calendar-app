@@ -57,6 +57,26 @@ export class PackagesService {
     });
   }
 
+  async remove(tenantId: string, id: string) {
+    const pkg = await this.prisma.servicePackage.findFirst({
+      where: { id, tenantId },
+      include: { _count: { select: { purchases: true } } },
+    });
+    if (!pkg) throw new NotFoundException('Paquete no encontrado.');
+
+    await this.prisma.$transaction([
+      this.prisma.clientPackage.deleteMany({
+        where: { tenantId, packageId: id },
+      }),
+      this.prisma.servicePackage.delete({ where: { id } }),
+    ]);
+
+    return {
+      ok: true,
+      deletedPurchases: pkg._count.purchases,
+    };
+  }
+
   listClientPackages(
     tenantId: string,
     clientId?: string,

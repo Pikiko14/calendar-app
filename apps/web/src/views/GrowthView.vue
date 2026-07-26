@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Power,
   ShoppingBag,
+  Trash2,
 } from '@lucide/vue'
 import { api } from '@/api/client'
 import { toastError, toastSuccess, confirmAction } from '@/lib/swal'
@@ -26,6 +27,11 @@ const auth = useAuthStore()
 const tab = computed(() => {
   const t = String(route.query.tab || 'packages')
   return ['packages', 'coupons', 'gifts'].includes(t) ? t : 'packages'
+})
+
+const packagesView = computed(() => {
+  const v = String(route.query.view || 'sold')
+  return v === 'manage' ? 'manage' : 'sold'
 })
 
 const packages = ref<any[]>([])
@@ -199,6 +205,66 @@ async function togglePackage(pkg: { id: string; name: string; isActive: boolean 
   }
 }
 
+async function deletePackage(pkg: { id: string; name: string }) {
+  const ok = await confirmAction({
+    title: `¿Eliminar «${pkg.name}»?`,
+    text: 'También se borrarán las visitas vendidas de este paquete.',
+    confirmText: 'Eliminar',
+    danger: true,
+  })
+  if (!ok) return
+  busy.value = true
+  try {
+    await api(`/packages/${pkg.id}`, { method: 'DELETE' })
+    await toastSuccess('Paquete eliminado')
+    await load()
+  } catch (e) {
+    await toastError('Paquete', e instanceof Error ? e.message : 'Error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function deleteCoupon(c: { id: string; code: string }) {
+  const ok = await confirmAction({
+    title: `¿Eliminar cupón ${c.code}?`,
+    text: 'Ya no se podrá usar este código.',
+    confirmText: 'Eliminar',
+    danger: true,
+  })
+  if (!ok) return
+  busy.value = true
+  try {
+    await api(`/marketing/coupons/${c.id}`, { method: 'DELETE' })
+    await toastSuccess('Cupón eliminado')
+    await load()
+  } catch (e) {
+    await toastError('Cupón', e instanceof Error ? e.message : 'Error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function deleteGift(g: { id: string; code: string }) {
+  const ok = await confirmAction({
+    title: `¿Eliminar gift card ${g.code}?`,
+    text: 'Se perderá el saldo restante.',
+    confirmText: 'Eliminar',
+    danger: true,
+  })
+  if (!ok) return
+  busy.value = true
+  try {
+    await api(`/marketing/gift-cards/${g.id}`, { method: 'DELETE' })
+    await toastSuccess('Gift card eliminada')
+    await load()
+  } catch (e) {
+    await toastError('Gift card', e instanceof Error ? e.message : 'Error')
+  } finally {
+    busy.value = false
+  }
+}
+
 async function consumeVisit(purchaseId: string) {
   consumeBusyId.value = purchaseId
   try {
@@ -343,12 +409,12 @@ onMounted(load)
       <nav class="mt-5 flex flex-wrap gap-2 text-sm">
         <RouterLink
           v-for="t in [
-            { id: 'packages', label: 'Paquetes', icon: Package },
-            { id: 'coupons', label: 'Cupones', icon: Percent },
-            { id: 'gifts', label: 'Gift cards', icon: Gift },
+            { id: 'packages', label: 'Paquetes', icon: Package, query: { tab: 'packages', view: 'sold' } },
+            { id: 'coupons', label: 'Cupones', icon: Percent, query: { tab: 'coupons' } },
+            { id: 'gifts', label: 'Gift cards', icon: Gift, query: { tab: 'gifts' } },
           ]"
           :key="t.id"
-          :to="{ name: 'growth', query: { tab: t.id } }"
+          :to="{ name: 'growth', query: t.query }"
           class="inline-flex items-center gap-2 rounded-full px-4 py-2 font-medium transition"
           :class="
             tab === t.id
@@ -364,121 +430,77 @@ onMounted(load)
 
     <!-- PAQUETES -->
     <section v-if="tab === 'packages'" class="space-y-4">
-      <article class="surface overflow-hidden">
-        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-black/5 p-5 md:p-6 dark:border-white/10">
-          <div class="flex items-start gap-3">
-            <div class="rounded-2xl bg-brand-50 p-2.5 text-brand-800 dark:bg-brand-950 dark:text-brand-300">
-              <Package class="h-5 w-5" />
-            </div>
-            <div>
-              <h2 class="font-display text-xl font-semibold">Catálogo de paquetes</h2>
-              <p class="mt-1 text-sm text-ink-muted">
-                Crea packs de visitas y véndelos a tus clientes.
-              </p>
-            </div>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn-ghost !py-2.5 !px-4" @click="openSell()">
-              <ShoppingBag class="h-4 w-4" />
-              Vender
-            </button>
-            <button type="button" class="btn-primary !py-2.5 !px-4" @click="openCreatePkg">
-              <Plus class="h-4 w-4" />
-              Nuevo paquete
-            </button>
-          </div>
-        </div>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <nav class="flex flex-wrap gap-2 text-sm">
+          <RouterLink
+            :to="{ name: 'growth', query: { tab: 'packages', view: 'sold' } }"
+            class="inline-flex items-center gap-2 rounded-full px-4 py-2 font-medium transition"
+            :class="
+              packagesView === 'sold'
+                ? 'bg-brand-700 text-white shadow-soft'
+                : 'bg-black/5 text-ink hover:bg-black/10 dark:bg-white/10'
+            "
+          >
+            <Users class="h-4 w-4" />
+            Vendidos
+            <span
+              class="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+              :class="packagesView === 'sold' ? 'bg-white/20' : 'bg-black/10 dark:bg-white/10'"
+            >
+              {{ purchases.length }}
+            </span>
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'growth', query: { tab: 'packages', view: 'manage' } }"
+            class="inline-flex items-center gap-2 rounded-full px-4 py-2 font-medium transition"
+            :class="
+              packagesView === 'manage'
+                ? 'bg-brand-700 text-white shadow-soft'
+                : 'bg-black/5 text-ink hover:bg-black/10 dark:bg-white/10'
+            "
+          >
+            <Package class="h-4 w-4" />
+            Gestionar
+            <span
+              class="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+              :class="packagesView === 'manage' ? 'bg-white/20' : 'bg-black/10 dark:bg-white/10'"
+            >
+              {{ packages.length }}
+            </span>
+          </RouterLink>
+        </nav>
 
-        <div v-if="!packages.length" class="px-6 py-14 text-center">
-          <Package class="mx-auto h-10 w-10 text-ink-muted/40" />
-          <p class="mt-3 font-display text-lg font-bold">Sin paquetes</p>
-          <p class="mt-1 text-sm text-ink-muted">Crea el primero para empezar a vender visitas.</p>
-          <button type="button" class="btn-primary mt-5 !py-2.5" @click="openCreatePkg">
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-if="packagesView === 'sold'"
+            type="button"
+            class="btn-primary !py-2.5 !px-4"
+            @click="openSell()"
+          >
+            <ShoppingBag class="h-4 w-4" />
+            Vender paquete
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn-primary !py-2.5 !px-4"
+            @click="openCreatePkg"
+          >
             <Plus class="h-4 w-4" />
-            Crear paquete
+            Nuevo paquete
           </button>
         </div>
+      </div>
 
-        <div v-else class="overflow-x-auto">
-          <table class="w-full min-w-[720px] text-left text-sm">
-            <thead class="bg-black/[0.03] text-xs uppercase tracking-wide text-ink-muted dark:bg-white/5">
-              <tr>
-                <th class="px-4 py-3 font-semibold">Nombre</th>
-                <th class="px-4 py-3 font-semibold">Servicio</th>
-                <th class="px-4 py-3 font-semibold">Visitas</th>
-                <th class="px-4 py-3 font-semibold">Precio</th>
-                <th class="px-4 py-3 font-semibold">Vigencia</th>
-                <th class="px-4 py-3 font-semibold">Estado</th>
-                <th class="px-4 py-3 font-semibold text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="p in packages"
-                :key="p.id"
-                class="border-t border-black/5 dark:border-white/10"
-              >
-                <td class="px-4 py-3 font-semibold">{{ p.name }}</td>
-                <td class="px-4 py-3 text-ink-muted">
-                  {{ p.service?.name || 'Cualquiera' }}
-                </td>
-                <td class="px-4 py-3">{{ p.sessions }}</td>
-                <td class="px-4 py-3">{{ money(p.price) }}</td>
-                <td class="px-4 py-3 text-ink-muted">
-                  {{ p.validityDays ? `${p.validityDays} días` : 'Sin límite' }}
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    class="rounded-full px-2.5 py-1 text-xs font-bold"
-                    :class="
-                      p.isActive
-                        ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-black/5 text-ink-muted dark:bg-white/10'
-                    "
-                  >
-                    {{ p.isActive ? 'Activo' : 'Inactivo' }}
-                  </span>
-                </td>
-                <td class="px-4 py-3">
-                  <div class="flex flex-wrap items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 disabled:opacity-40 dark:bg-brand-950 dark:text-brand-300"
-                      :disabled="!p.isActive || busy"
-                      @click="openSell(p.id)"
-                    >
-                      <ShoppingBag class="h-3.5 w-3.5" />
-                      Vender
-                    </button>
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-ink-muted hover:text-ink dark:bg-white/5"
-                      :disabled="busy"
-                      @click="togglePackage(p)"
-                    >
-                      <Power class="h-3.5 w-3.5" />
-                      {{ p.isActive ? 'Desactivar' : 'Activar' }}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      <article class="surface p-5 md:p-6">
+      <!-- Tab 1: Vendidos -->
+      <article v-if="packagesView === 'sold'" class="surface p-5 md:p-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="flex items-start gap-3">
-            <div class="rounded-2xl bg-brand-50 p-2.5 text-brand-800 dark:bg-brand-950 dark:text-brand-300">
-              <Users class="h-5 w-5" />
-            </div>
-            <div>
-              <h2 class="font-display text-xl font-semibold">Visitas de clientes</h2>
-              <p class="mt-1 max-w-xl text-sm text-ink-muted">
-                Descuenta visitas manualmente o al marcar la cita como <b>Atendida</b> en el calendario.
-              </p>
-            </div>
+          <div>
+            <h2 class="font-display text-xl font-semibold">Paquetes vendidos</h2>
+            <p class="mt-1 max-w-xl text-sm text-ink-muted">
+              Consulta las visitas de cada cliente. Descuéntalas aquí o al marcar la cita como
+              <b>Atendida</b>.
+            </p>
           </div>
           <div
             class="rounded-full bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-800 dark:bg-brand-950 dark:text-brand-300"
@@ -489,7 +511,7 @@ onMounted(load)
 
         <div class="mt-4">
           <label class="block text-sm">
-            <span class="mb-1.5 block text-ink-muted">Buscar</span>
+            <span class="mb-1.5 block font-medium text-ink">Buscar</span>
             <input
               v-model="purchaseFilter"
               type="search"
@@ -580,11 +602,115 @@ onMounted(load)
               </tr>
               <tr v-if="!filteredPurchases.length">
                 <td colspan="5" class="px-4 py-10 text-center text-ink-muted">
-                  {{
-                    purchases.length
-                      ? 'No hay resultados con ese filtro.'
-                      : 'Aún no hay paquetes vendidos.'
-                  }}
+                  <template v-if="purchases.length">
+                    No hay resultados con ese filtro.
+                  </template>
+                  <template v-else>
+                    Aún no hay paquetes vendidos.
+                    <button
+                      type="button"
+                      class="mt-3 block w-full text-brand-700 underline"
+                      @click="openSell()"
+                    >
+                      Vender el primero
+                    </button>
+                  </template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <!-- Tab 2: Gestionar catálogo -->
+      <article v-else class="surface overflow-hidden">
+        <div class="border-b border-black/5 p-5 md:p-6 dark:border-white/10">
+          <h2 class="font-display text-xl font-semibold">Gestionar paquetes</h2>
+          <p class="mt-1 text-sm text-ink-muted">
+            Catálogo de packs. Créalos desde el botón <b>Nuevo paquete</b>.
+          </p>
+        </div>
+
+        <div v-if="!packages.length" class="px-6 py-14 text-center">
+          <Package class="mx-auto h-10 w-10 text-ink-muted/40" />
+          <p class="mt-3 font-display text-lg font-bold">Sin paquetes</p>
+          <p class="mt-1 text-sm text-ink-muted">Crea el primero para empezar a vender visitas.</p>
+          <button type="button" class="btn-primary mt-5 !py-2.5" @click="openCreatePkg">
+            <Plus class="h-4 w-4" />
+            Crear paquete
+          </button>
+        </div>
+
+        <div v-else class="overflow-x-auto">
+          <table class="w-full min-w-[720px] text-left text-sm">
+            <thead class="bg-black/[0.03] text-xs uppercase tracking-wide text-ink-muted dark:bg-white/5">
+              <tr>
+                <th class="px-4 py-3 font-semibold">Nombre</th>
+                <th class="px-4 py-3 font-semibold">Servicio</th>
+                <th class="px-4 py-3 font-semibold">Visitas</th>
+                <th class="px-4 py-3 font-semibold">Precio</th>
+                <th class="px-4 py-3 font-semibold">Vigencia</th>
+                <th class="px-4 py-3 font-semibold">Estado</th>
+                <th class="px-4 py-3 font-semibold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="p in packages"
+                :key="p.id"
+                class="border-t border-black/5 dark:border-white/10"
+              >
+                <td class="px-4 py-3 font-semibold">{{ p.name }}</td>
+                <td class="px-4 py-3 text-ink-muted">
+                  {{ p.service?.name || 'Cualquiera' }}
+                </td>
+                <td class="px-4 py-3">{{ p.sessions }}</td>
+                <td class="px-4 py-3">{{ money(p.price) }}</td>
+                <td class="px-4 py-3 text-ink-muted">
+                  {{ p.validityDays ? `${p.validityDays} días` : 'Sin límite' }}
+                </td>
+                <td class="px-4 py-3">
+                  <span
+                    class="rounded-full px-2.5 py-1 text-xs font-bold"
+                    :class="
+                      p.isActive
+                        ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : 'bg-black/5 text-ink-muted dark:bg-white/10'
+                    "
+                  >
+                    {{ p.isActive ? 'Activo' : 'Inactivo' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 disabled:opacity-40 dark:bg-brand-950 dark:text-brand-300"
+                      :disabled="!p.isActive || busy"
+                      @click="openSell(p.id)"
+                    >
+                      <ShoppingBag class="h-3.5 w-3.5" />
+                      Vender
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-ink-muted hover:text-ink dark:bg-white/5"
+                      :disabled="busy"
+                      @click="togglePackage(p)"
+                    >
+                      <Power class="h-3.5 w-3.5" />
+                      {{ p.isActive ? 'Desactivar' : 'Activar' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                      :disabled="busy"
+                      @click="deletePackage(p)"
+                    >
+                      <Trash2 class="h-3.5 w-3.5" />
+                      Eliminar
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -794,6 +920,15 @@ onMounted(load)
             <Copy class="h-3.5 w-3.5" />
             Copiar código
           </button>
+          <button
+            type="button"
+            class="mt-2 ml-2 inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
+            :disabled="busy"
+            @click="deleteCoupon(c)"
+          >
+            <Trash2 class="h-3.5 w-3.5" />
+            Eliminar
+          </button>
         </article>
         <p
           v-if="!coupons.length"
@@ -969,6 +1104,15 @@ onMounted(load)
                 >
                   <Copy class="h-3.5 w-3.5" />
                   Copiar
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-full bg-red-500/25 px-3 py-1.5 text-xs font-semibold backdrop-blur hover:bg-red-500/40"
+                  :disabled="busy"
+                  @click="deleteGift(g)"
+                >
+                  <Trash2 class="h-3.5 w-3.5" />
+                  Eliminar
                 </button>
               </div>
             </div>

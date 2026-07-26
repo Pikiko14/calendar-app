@@ -81,6 +81,17 @@ export class PayInvoiceDto {
   @IsNumber()
   @Min(0)
   amount?: number;
+
+  /** Código de gift card a canjear (se valida: activa, saldo, vigencia). */
+  @IsOptional()
+  @IsString()
+  giftCardCode?: string;
+}
+
+export class ValidateGiftCardDto {
+  @IsString()
+  @MinLength(2)
+  code!: string;
 }
 
 export class UpdateInvoiceStatusDto {

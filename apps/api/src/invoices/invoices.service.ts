@@ -326,6 +326,50 @@ export class InvoicesService {
     });
   }
 
+  /** Valida gift card: existe, activa, con saldo y no vencida. */
+  async validateGiftCard(tenantId: string, code: string) {
+    const normalized = code.trim().toUpperCase();
+    if (!normalized) {
+      throw new BadRequestException('Ingresa el código de la gift card.');
+    }
+    const gift = await this.prisma.giftCard.findFirst({
+      where: { tenantId, code: normalized },
+      include: {
+        client: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+    });
+    if (!gift) {
+      throw new NotFoundException('Gift card no encontrada.');
+    }
+    if (!gift.isActive) {
+      throw new BadRequestException('Esta gift card está inactiva.');
+    }
+    if (gift.expiresAt && gift.expiresAt < new Date()) {
+      throw new BadRequestException('Esta gift card está vencida.');
+    }
+    const balance = Number(gift.balance);
+    if (balance <= 0) {
+      throw new BadRequestException('Esta gift card no tiene saldo disponible.');
+    }
+    return {
+      id: gift.id,
+      code: gift.code,
+      balance,
+      initial: Number(gift.initial),
+      expiresAt: gift.expiresAt,
+      isActive: gift.isActive,
+      client: gift.client,
+      valid: true,
+      message: `Saldo disponible: ${balance.toLocaleString('es-CO', {
+        style: 'currency',
+        currency: 'COP',
+        maximumFractionDigits: 0,
+      })}`,
+    };
+  }
+
   async markPaid(tenantId: string, id: string, dto: PayInvoiceDto) {
     const invoice = await this.one(tenantId, id);
     if (invoice.status === InvoiceStatus.CANCELLED) {
@@ -335,7 +379,110 @@ export class InvoicesService {
       throw new BadRequestException('La factura ya está pagada.');
     }
 
-    const amount = dto.amount != null ? Number(dto.amount) : Number(invoice.total);
+    const total = Number(invoice.total);
+    const now = new Date();
+    const giftCode = dto.giftCardCode?.trim().toUpperCase();
+
+    if (giftCode) {
+      const giftInfo = await this.validateGiftCard(tenantId, giftCode);
+      const giftApply = Math.min(giftInfo.balance, total);
+      const remainder = Math.round((total - giftApply) * 100) / 100;
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const updatedGift = await tx.giftCard.updateMany({
+          where: {
+            id: giftInfo.id,
+            tenantId,
+            isActive: true,
+            balance: { gte: giftApply },
+          },
+          data: {
+            balance: { decrement: giftApply },
+          },
+        });
+        if (!updatedGift.count) {
+          throw new BadRequestException(
+            'No se pudo canjear la gift card (saldo insuficiente o inactiva).',
+          );
+        }
+        const giftAfter = await tx.giftCard.findUnique({
+          where: { id: giftInfo.id },
+        });
+        if (giftAfter && Number(giftAfter.balance) <= 0) {
+          await tx.giftCard.update({
+            where: { id: giftInfo.id },
+            data: { isActive: false, balance: 0 },
+          });
+        }
+
+        await tx.payment.create({
+          data: {
+            tenantId,
+            invoiceId: invoice.id,
+            appointmentId: invoice.appointmentId,
+            amount: giftApply,
+            currency: invoice.currency,
+            method: PaymentMethod.GIFT_CARD,
+            provider: PaymentProvider.LOCAL,
+            status: PaymentStatus.PAID,
+            paidAt: now,
+            metadata: {
+              type: 'gift_card_redeem',
+              giftCardId: giftInfo.id,
+              code: giftInfo.code,
+            },
+          },
+        });
+
+        if (remainder > 0) {
+          await tx.payment.create({
+            data: {
+              tenantId,
+              invoiceId: invoice.id,
+              appointmentId: invoice.appointmentId,
+              amount: remainder,
+              currency: invoice.currency,
+              method: dto.method || PaymentMethod.CASH,
+              provider: PaymentProvider.LOCAL,
+              status: PaymentStatus.PAID,
+              paidAt: now,
+            },
+          });
+        }
+
+        const updated = await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            status: InvoiceStatus.PAID,
+            paidAt: now,
+            metadata: {
+              ...((invoice.metadata as Record<string, unknown>) || {}),
+              giftCardCode: giftInfo.code,
+              giftCardApplied: giftApply,
+            } as Prisma.InputJsonValue,
+          },
+          include: {
+            client: true,
+            items: true,
+            payments: true,
+          },
+        });
+
+        return {
+          invoice: updated,
+          giftApplied: giftApply,
+          remainder,
+          giftCard: {
+            code: giftInfo.code,
+            remainingBalance: Math.max(0, giftInfo.balance - giftApply),
+          },
+        };
+      });
+
+      return result;
+    }
+
+    const amount = dto.amount != null ? Number(dto.amount) : total;
 
     const [payment, updated] = await this.prisma.$transaction([
       this.prisma.payment.create({
@@ -348,14 +495,14 @@ export class InvoicesService {
           method: dto.method || PaymentMethod.CASH,
           provider: PaymentProvider.LOCAL,
           status: PaymentStatus.PAID,
-          paidAt: new Date(),
+          paidAt: now,
         },
       }),
       this.prisma.invoice.update({
         where: { id: invoice.id },
         data: {
           status: InvoiceStatus.PAID,
-          paidAt: new Date(),
+          paidAt: now,
         },
         include: {
           client: true,

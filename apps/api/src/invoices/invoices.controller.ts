@@ -18,6 +18,7 @@ import {
   CreateFromAppointmentDto,
   CreateInvoiceDto,
   PayInvoiceDto,
+  ValidateGiftCardDto,
 } from './dto/invoices.dto';
 import { InvoicesService } from './invoices.service';
 
@@ -41,6 +42,16 @@ export class InvoicesController {
   @ApiOperation({ summary: 'Resumen de facturación' })
   summary(@TenantId() tenantId: string) {
     return this.invoices.summary(tenantId);
+  }
+
+  @Post('validate-gift-card')
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Validar gift card (activa, saldo, vigencia)' })
+  validateGift(
+    @TenantId() tenantId: string,
+    @Body() dto: ValidateGiftCardDto,
+  ) {
+    return this.invoices.validateGiftCard(tenantId, dto.code);
   }
 
   @Get('by-appointment/:appointmentId')

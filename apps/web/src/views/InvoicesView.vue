@@ -10,6 +10,8 @@ import {
   Download,
   ChevronDown,
   Check,
+  Gift,
+  Package,
 } from '@lucide/vue'
 import { api, API_ORIGIN } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
@@ -66,6 +68,29 @@ const selectedAppointmentId = ref('')
 const appointmentMenuOpen = ref(false)
 const selectedInvoice = ref<InvoiceRow | null>(null)
 const auth = useAuthStore()
+
+type CreateMode = 'appointment' | 'package' | 'gift'
+const createMode = ref<CreateMode>('appointment')
+const packages = ref<Array<{ id: string; name: string; sessions: number; price: string | number; isActive: boolean }>>([])
+const clients = ref<Array<{ id: string; firstName: string; lastName: string }>>([])
+const sellPackageId = ref('')
+const sellClientId = ref('')
+const giftAmount = ref(100000)
+const giftClientId = ref('')
+const giftCode = ref('')
+
+const showPayModal = ref(false)
+const payInvoice = ref<InvoiceRow | null>(null)
+const payMethod = ref<'CASH' | 'CARD' | 'TRANSFER'>('CASH')
+const payGiftCode = ref('')
+const giftCheck = ref<{
+  valid?: boolean
+  code?: string
+  balance?: number
+  message?: string
+  error?: string
+} | null>(null)
+const giftCheckBusy = ref(false)
 
 const selectedAppointment = computed(() =>
   appointments.value.find((a) => a.id === selectedAppointmentId.value) || null,
@@ -141,16 +166,30 @@ async function load() {
 
 async function openCreate() {
   showModal.value = true
+  createMode.value = 'appointment'
   selectedAppointmentId.value = ''
   appointmentMenuOpen.value = false
+  sellPackageId.value = ''
+  sellClientId.value = ''
+  giftAmount.value = 100000
+  giftClientId.value = ''
+  giftCode.value = ''
   try {
-    const list = await api<AppointmentOption[]>('/appointments')
+    const [list, pkgs, cli] = await Promise.all([
+      api<AppointmentOption[]>('/appointments').catch(() => []),
+      api<typeof packages.value>('/packages').catch(() => []),
+      api<typeof clients.value>('/clients').catch(() => []),
+    ])
     const sorted = [...(Array.isArray(list) ? list : [])].sort(
       (a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime(),
     )
     appointments.value = sorted.slice(0, 50)
+    packages.value = Array.isArray(pkgs) ? pkgs.filter((p) => p.isActive) : []
+    clients.value = Array.isArray(cli) ? cli : []
   } catch {
     appointments.value = []
+    packages.value = []
+    clients.value = []
   }
 }
 
@@ -163,7 +202,7 @@ async function createFromAppointment() {
       body: JSON.stringify({ appointmentId: selectedAppointmentId.value }),
     })
     showModal.value = false
-    await toastSuccess('Factura creada')
+    await toastSuccess('Factura creada', 'Queda emitida. Cobra cuando el cliente pague.')
     await load()
     const full = await api<InvoiceRow>(`/invoices/${invoice.id}`)
     selectedInvoice.value = full
@@ -172,6 +211,71 @@ async function createFromAppointment() {
   } finally {
     busy.value = false
   }
+}
+
+async function createFromPackage() {
+  if (!sellPackageId.value || !sellClientId.value) return
+  busy.value = true
+  try {
+    const sold = await api<{ invoice?: { id: string; number: string } }>('/packages/sell', {
+      method: 'POST',
+      body: JSON.stringify({
+        packageId: sellPackageId.value,
+        clientId: sellClientId.value,
+      }),
+    })
+    showModal.value = false
+    await toastSuccess(
+      'Paquete facturado',
+      sold.invoice?.number ? `Factura ${sold.invoice.number} pagada` : 'Venta registrada',
+    )
+    await load()
+    if (sold.invoice?.id) {
+      selectedInvoice.value = await api<InvoiceRow>(`/invoices/${sold.invoice.id}`)
+    }
+  } catch (e) {
+    await toastError('No se pudo facturar el paquete', e instanceof Error ? e.message : 'Error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function createFromGift() {
+  if (!giftAmount.value || giftAmount.value < 1) return
+  busy.value = true
+  try {
+    const created = await api<{
+      invoice?: { id: string; number: string }
+    }>('/marketing/gift-cards', {
+      method: 'POST',
+      body: JSON.stringify({
+        amount: Number(giftAmount.value),
+        code: giftCode.value.trim() || undefined,
+        clientId: giftClientId.value || undefined,
+      }),
+    })
+    showModal.value = false
+    await toastSuccess(
+      'Gift card facturada',
+      created.invoice?.number
+        ? `Factura ${created.invoice.number} pagada`
+        : 'Gift card creada',
+    )
+    await load()
+    if (created.invoice?.id) {
+      selectedInvoice.value = await api<InvoiceRow>(`/invoices/${created.invoice.id}`)
+    }
+  } catch (e) {
+    await toastError('No se pudo facturar la gift card', e instanceof Error ? e.message : 'Error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function submitCreate() {
+  if (createMode.value === 'appointment') return createFromAppointment()
+  if (createMode.value === 'package') return createFromPackage()
+  return createFromGift()
 }
 
 async function doPrint(invoice: InvoiceRow) {
@@ -223,23 +327,93 @@ async function sendWhatsApp(row: InvoiceRow) {
   }
 }
 
-async function markPaid(row: InvoiceRow) {
-  const ok = await confirmAction({
-    title: `¿Marcar ${row.number} como pagada?`,
-    text: `Total ${money(row.total)}. Se registrará el pago en efectivo.`,
-    confirmText: 'Marcar pagada',
-  })
-  if (!ok) return
+async function openPay(row: InvoiceRow) {
+  payInvoice.value = row
+  payMethod.value = 'CASH'
+  payGiftCode.value = ''
+  giftCheck.value = null
+  showPayModal.value = true
+}
+
+async function validateGiftInput() {
+  const code = payGiftCode.value.trim()
+  giftCheck.value = null
+  if (!code) return
+  giftCheckBusy.value = true
   try {
-    await api(`/invoices/${row.id}/pay`, {
+    const res = await api<{
+      code: string
+      balance: number
+      message: string
+      valid: boolean
+    }>('/invoices/validate-gift-card', {
       method: 'POST',
-      body: JSON.stringify({ method: 'CASH' }),
+      body: JSON.stringify({ code }),
     })
-    await toastSuccess('Factura pagada')
+    giftCheck.value = {
+      valid: true,
+      code: res.code,
+      balance: res.balance,
+      message: res.message,
+    }
+  } catch (e) {
+    giftCheck.value = {
+      valid: false,
+      error: e instanceof Error ? e.message : 'Gift card inválida',
+    }
+  } finally {
+    giftCheckBusy.value = false
+  }
+}
+
+async function confirmPay() {
+  if (!payInvoice.value) return
+  if (payGiftCode.value.trim() && giftCheck.value && giftCheck.value.valid === false) {
+    await toastError('Gift card', giftCheck.value.error || 'Código inválido')
+    return
+  }
+  if (payGiftCode.value.trim() && !giftCheck.value?.valid) {
+    await validateGiftInput()
+    if (!giftCheck.value?.valid) {
+      await toastError('Gift card', giftCheck.value?.error || 'Valida el código primero')
+      return
+    }
+  }
+  busy.value = true
+  try {
+    const result = await api<{
+      giftApplied?: number
+      remainder?: number
+      giftCard?: { code: string; remainingBalance: number }
+    }>(`/invoices/${payInvoice.value.id}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: payMethod.value,
+        giftCardCode: payGiftCode.value.trim() || undefined,
+      }),
+    })
+    showPayModal.value = false
+    payInvoice.value = null
+    if (result.giftApplied) {
+      await toastSuccess(
+        'Factura pagada',
+        `Gift card ${money(result.giftApplied)}${
+          result.remainder ? ` + ${money(result.remainder)} en ${payMethod.value}` : ''
+        }`,
+      )
+    } else {
+      await toastSuccess('Factura pagada')
+    }
     await load()
   } catch (e) {
     await toastError('No se pudo cobrar', e instanceof Error ? e.message : 'Error')
+  } finally {
+    busy.value = false
   }
+}
+
+async function markPaid(row: InvoiceRow) {
+  openPay(row)
 }
 
 async function cancelInvoice(row: InvoiceRow) {
@@ -276,7 +450,7 @@ async function openDetail(row: InvoiceRow) {
         <p class="section-eyebrow">Negocio</p>
         <h1 class="font-display mt-1 text-display-md font-bold">Facturación</h1>
         <p class="mt-2 text-sm text-ink-muted">
-          Emite facturas desde citas, cobra y lleva el control de pagos.
+          Factura citas, paquetes y gift cards. Al cobrar puedes canjear una gift card.
         </p>
       </div>
       <button type="button" class="btn-primary inline-flex items-center gap-2" @click="openCreate">
@@ -432,80 +606,243 @@ async function openDetail(row: InvoiceRow) {
       @click.self="showModal = false; appointmentMenuOpen = false"
     >
       <div class="surface w-full max-w-lg p-6 shadow-lift">
-        <h2 class="font-display text-xl font-bold">Facturar cita</h2>
+        <h2 class="font-display text-xl font-bold">Nueva factura</h2>
         <p class="mt-1 text-sm text-ink-muted">
-          Se genera el número automáticamente y se toma el precio de la cita.
+          Elige el tipo de venta. Paquetes y gift cards se facturan y cobran al crear.
         </p>
-        <div class="mt-5" data-appointment-picker>
-          <p class="text-sm text-ink-muted">Cita</p>
-          <div class="relative mt-2">
-            <button
-              type="button"
-              class="input-field flex w-full items-center justify-between gap-3 text-left"
-              @click.stop="appointmentMenuOpen = !appointmentMenuOpen"
-            >
-              <span
-                class="min-w-0 flex-1 truncate"
-                :class="selectedAppointment ? 'text-ink dark:text-mist' : 'text-ink-muted/60'"
-              >
-                {{
-                  selectedAppointment
-                    ? appointmentLabel(selectedAppointment)
-                    : 'Selecciona una cita…'
-                }}
-              </span>
-              <ChevronDown
-                class="h-4 w-4 shrink-0 text-ink-muted transition"
-                :class="appointmentMenuOpen ? 'rotate-180' : ''"
-              />
-            </button>
-            <div
-              v-if="appointmentMenuOpen"
-              class="absolute left-0 right-0 z-20 mt-2 max-h-64 overflow-auto rounded-2xl border border-black/10 bg-white py-1.5 shadow-lift dark:border-white/10 dark:bg-ink-soft"
-            >
-              <p
-                v-if="!appointments.length"
-                class="px-4 py-3 text-sm text-ink-muted"
-              >
-                No hay citas disponibles.
-              </p>
-              <button
-                v-for="a in appointments"
-                :key="a.id"
-                type="button"
-                class="flex w-full items-start gap-2 px-4 py-2.5 text-left text-sm transition hover:bg-brand-50 dark:hover:bg-brand-950/40"
-                :class="
-                  selectedAppointmentId === a.id
-                    ? 'bg-brand-50 text-brand-900 dark:bg-brand-950/50 dark:text-brand-200'
-                    : 'text-ink dark:text-mist'
-                "
-                @click="pickAppointment(a.id)"
-              >
-                <Check
-                  class="mt-0.5 h-4 w-4 shrink-0"
-                  :class="selectedAppointmentId === a.id ? 'opacity-100' : 'opacity-0'"
-                />
-                <span class="min-w-0">
-                  <span class="block font-medium">
-                    {{ a.client.firstName }} {{ a.client.lastName }} · {{ a.service.name }}
-                  </span>
-                  <span class="mt-0.5 block text-xs text-ink-muted">
-                    {{ new Date(a.startAt).toLocaleString('es-CO') }} · {{ money(a.price) }}
-                  </span>
-                </span>
-              </button>
-            </div>
-          </div>
+
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button
+            v-for="m in [
+              { id: 'appointment', label: 'Cita', icon: FileText },
+              { id: 'package', label: 'Paquete', icon: Package },
+              { id: 'gift', label: 'Gift card', icon: Gift },
+            ]"
+            :key="m.id"
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition"
+            :class="
+              createMode === m.id
+                ? 'bg-brand-700 text-white'
+                : 'bg-black/5 text-ink-muted dark:bg-white/10'
+            "
+            @click="createMode = m.id as CreateMode"
+          >
+            <component :is="m.icon" class="h-3.5 w-3.5" />
+            {{ m.label }}
+          </button>
         </div>
+
+        <!-- Cita -->
+        <div v-if="createMode === 'appointment'" class="mt-5" data-appointment-picker>
+          <label class="block text-sm">
+            <span class="mb-1.5 block font-medium text-ink">Cita</span>
+            <div class="relative">
+              <button
+                type="button"
+                class="input-field flex w-full items-center justify-between gap-3 text-left"
+                @click.stop="appointmentMenuOpen = !appointmentMenuOpen"
+              >
+                <span
+                  class="min-w-0 flex-1 truncate"
+                  :class="selectedAppointment ? 'text-ink dark:text-mist' : 'text-ink-muted/60'"
+                >
+                  {{
+                    selectedAppointment
+                      ? appointmentLabel(selectedAppointment)
+                      : 'Selecciona una cita…'
+                  }}
+                </span>
+                <ChevronDown
+                  class="h-4 w-4 shrink-0 text-ink-muted transition"
+                  :class="appointmentMenuOpen ? 'rotate-180' : ''"
+                />
+              </button>
+              <div
+                v-if="appointmentMenuOpen"
+                class="absolute left-0 right-0 z-20 mt-2 max-h-64 overflow-auto rounded-2xl border border-black/10 bg-white py-1.5 shadow-lift dark:border-white/10 dark:bg-ink-soft"
+              >
+                <p v-if="!appointments.length" class="px-4 py-3 text-sm text-ink-muted">
+                  No hay citas disponibles.
+                </p>
+                <button
+                  v-for="a in appointments"
+                  :key="a.id"
+                  type="button"
+                  class="flex w-full items-start gap-2 px-4 py-2.5 text-left text-sm transition hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                  :class="
+                    selectedAppointmentId === a.id
+                      ? 'bg-brand-50 text-brand-900 dark:bg-brand-950/50 dark:text-brand-200'
+                      : 'text-ink dark:text-mist'
+                  "
+                  @click="pickAppointment(a.id)"
+                >
+                  <Check
+                    class="mt-0.5 h-4 w-4 shrink-0"
+                    :class="selectedAppointmentId === a.id ? 'opacity-100' : 'opacity-0'"
+                  />
+                  <span class="min-w-0">
+                    <span class="block font-medium">
+                      {{ a.client.firstName }} {{ a.client.lastName }} · {{ a.service.name }}
+                    </span>
+                    <span class="mt-0.5 block text-xs text-ink-muted">
+                      {{ new Date(a.startAt).toLocaleString('es-CO') }} · {{ money(a.price) }}
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <!-- Paquete -->
+        <div v-else-if="createMode === 'package'" class="mt-5 space-y-3">
+          <label class="block text-sm">
+            <span class="mb-1.5 block font-medium text-ink">Paquete</span>
+            <select v-model="sellPackageId" class="input-field !rounded-xl !py-3">
+              <option value="">Selecciona…</option>
+              <option v-for="p in packages" :key="p.id" :value="p.id">
+                {{ p.name }} ({{ p.sessions }} · {{ money(p.price) }})
+              </option>
+            </select>
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1.5 block font-medium text-ink">Cliente</span>
+            <select v-model="sellClientId" class="input-field !rounded-xl !py-3">
+              <option value="">Selecciona…</option>
+              <option v-for="c in clients" :key="c.id" :value="c.id">
+                {{ c.firstName }} {{ c.lastName }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <!-- Gift -->
+        <div v-else class="mt-5 space-y-3">
+          <label class="block text-sm">
+            <span class="mb-1.5 block font-medium text-ink">Monto</span>
+            <input
+              v-model.number="giftAmount"
+              type="number"
+              min="1000"
+              step="1000"
+              class="input-field !rounded-xl !py-3"
+            />
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1.5 block font-medium text-ink">Código (opcional)</span>
+            <input
+              v-model="giftCode"
+              placeholder="Se genera solo si lo dejas vacío"
+              class="input-field !rounded-xl !py-3 uppercase"
+            />
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1.5 block font-medium text-ink">Cliente (opcional)</span>
+            <select v-model="giftClientId" class="input-field !rounded-xl !py-3">
+              <option value="">Sin asignar</option>
+              <option v-for="c in clients" :key="c.id" :value="c.id">
+                {{ c.firstName }} {{ c.lastName }}
+              </option>
+            </select>
+          </label>
+        </div>
+
         <div class="mt-6 flex justify-end gap-2">
-          <button type="button" class="btn-ghost" @click="showModal = false; appointmentMenuOpen = false">Cerrar</button>
+          <button
+            type="button"
+            class="btn-ghost"
+            @click="showModal = false; appointmentMenuOpen = false"
+          >
+            Cerrar
+          </button>
           <button
             type="button"
             class="btn-primary"
-            :disabled="busy || !selectedAppointmentId"
-            @click="createFromAppointment"
+            :disabled="
+              busy ||
+              (createMode === 'appointment' && !selectedAppointmentId) ||
+              (createMode === 'package' && (!sellPackageId || !sellClientId)) ||
+              (createMode === 'gift' && !giftAmount)
+            "
+            @click="submitCreate"
           >
-            {{ busy ? 'Creando…' : 'Crear factura' }}
+            {{
+              busy
+                ? 'Procesando…'
+                : createMode === 'appointment'
+                  ? 'Crear factura'
+                  : 'Facturar y cobrar'
+            }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal cobrar -->
+    <div
+      v-if="showPayModal && payInvoice"
+      class="fixed inset-0 z-[100] flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
+      @click.self="showPayModal = false"
+    >
+      <div class="surface w-full max-w-md p-6 shadow-lift">
+        <h2 class="font-display text-xl font-bold">Cobrar {{ payInvoice.number }}</h2>
+        <p class="mt-1 text-sm text-ink-muted">
+          Total <b>{{ money(payInvoice.total) }}</b>. Puedes aplicar una gift card.
+        </p>
+
+        <label class="mt-5 block text-sm">
+          <span class="mb-1.5 block font-medium text-ink">Método (saldo restante)</span>
+          <select v-model="payMethod" class="input-field !rounded-xl !py-3">
+            <option value="CASH">Efectivo</option>
+            <option value="CARD">Tarjeta</option>
+            <option value="TRANSFER">Transferencia</option>
+          </select>
+        </label>
+
+        <label class="mt-3 block text-sm">
+          <span class="mb-1.5 block font-medium text-ink">Gift card (opcional)</span>
+          <div class="flex gap-2">
+            <input
+              v-model="payGiftCode"
+              placeholder="Código"
+              class="input-field !rounded-xl !py-3 uppercase"
+              @blur="validateGiftInput"
+            />
+            <button
+              type="button"
+              class="btn-ghost !px-4 !py-2.5 shrink-0"
+              :disabled="giftCheckBusy || !payGiftCode.trim()"
+              @click="validateGiftInput"
+            >
+              Validar
+            </button>
+          </div>
+        </label>
+
+        <p
+          v-if="giftCheck?.valid"
+          class="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        >
+          {{ giftCheck.message }}
+          <span v-if="giftCheck.balance != null && payInvoice">
+            · Se aplicarán
+            {{
+              money(Math.min(giftCheck.balance, Number(payInvoice.total)))
+            }}
+          </span>
+        </p>
+        <p
+          v-else-if="giftCheck && giftCheck.valid === false"
+          class="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
+        >
+          {{ giftCheck.error }}
+        </p>
+
+        <div class="mt-6 flex justify-end gap-2">
+          <button type="button" class="btn-ghost" @click="showPayModal = false">Cancelar</button>
+          <button type="button" class="btn-primary" :disabled="busy" @click="confirmPay">
+            {{ busy ? 'Cobrando…' : 'Confirmar cobro' }}
           </button>
         </div>
       </div>

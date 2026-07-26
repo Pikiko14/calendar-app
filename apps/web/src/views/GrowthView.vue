@@ -2,21 +2,21 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  Clock3,
   Gift,
   Package,
   Percent,
   Printer,
   Copy,
-  Sparkles,
   Users,
   Check,
   Minus,
   Plus,
   RotateCcw,
+  Power,
+  ShoppingBag,
 } from '@lucide/vue'
 import { api } from '@/api/client'
-import { toastError, toastSuccess } from '@/lib/swal'
+import { toastError, toastSuccess, confirmAction } from '@/lib/swal'
 import { printGiftCard } from '@/lib/printGiftCard'
 import { useAuthStore } from '@/stores/auth'
 
@@ -24,11 +24,10 @@ const route = useRoute()
 const auth = useAuthStore()
 
 const tab = computed(() => {
-  const t = String(route.query.tab || 'waitlist')
-  return ['waitlist', 'packages', 'coupons', 'gifts'].includes(t) ? t : 'waitlist'
+  const t = String(route.query.tab || 'packages')
+  return ['packages', 'coupons', 'gifts'].includes(t) ? t : 'packages'
 })
 
-const waitlist = ref<any[]>([])
 const packages = ref<any[]>([])
 const purchases = ref<any[]>([])
 const coupons = ref<any[]>([])
@@ -56,6 +55,31 @@ const giftPreview = ref<any | null>(null)
 const giftAmounts = [50000, 100000, 150000, 200000]
 const purchaseFilter = ref('')
 const consumeBusyId = ref<string | null>(null)
+const showCreatePkgModal = ref(false)
+const showSellModal = ref(false)
+
+function resetPkgForm() {
+  pkgForm.value = {
+    name: '',
+    sessions: 5,
+    price: 100000,
+    serviceId: '',
+    validityDays: 90,
+  }
+}
+
+function openCreatePkg() {
+  resetPkgForm()
+  showCreatePkgModal.value = true
+}
+
+function openSell(pkgId?: string) {
+  sellForm.value = {
+    packageId: pkgId || '',
+    clientId: '',
+  }
+  showSellModal.value = true
+}
 
 const activePurchases = computed(() =>
   purchases.value.filter((p) => p.isActive && p.usedSessions < p.totalSessions),
@@ -80,14 +104,6 @@ function money(n: string | number) {
   }).format(Number(n || 0))
 }
 
-function waitStatus(s: string) {
-  if (s === 'WAITING') return 'En espera'
-  if (s === 'OFFERED') return 'Cupo ofertado'
-  if (s === 'BOOKED') return 'Reservó'
-  if (s === 'CANCELLED') return 'Cancelado'
-  return s
-}
-
 function clientName(c?: { firstName?: string; lastName?: string } | null) {
   if (!c) return ''
   return `${c.firstName || ''} ${c.lastName || ''}`.trim()
@@ -95,8 +111,7 @@ function clientName(c?: { firstName?: string; lastName?: string } | null) {
 
 async function load() {
   try {
-    const [w, p, buy, c, g, svc, cli] = await Promise.all([
-      api<any[]>('/waitlist').catch(() => []),
+    const [p, buy, c, g, svc, cli] = await Promise.all([
       api<any[]>('/packages').catch(() => []),
       api<any[]>('/packages/purchases').catch(() => []),
       api<any[]>('/marketing/coupons').catch(() => []),
@@ -104,7 +119,6 @@ async function load() {
       api<any[]>('/services').catch(() => []),
       api<any[]>('/clients').catch(() => []),
     ])
-    waitlist.value = w
     packages.value = p
     purchases.value = buy
     coupons.value = c
@@ -114,15 +128,6 @@ async function load() {
   } catch (e) {
     await toastError('Crecimiento', e instanceof Error ? e.message : 'Error')
   }
-}
-
-async function notifyWait(id: string) {
-  await api(`/waitlist/${id}/status`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: 'OFFERED' }),
-  })
-  await toastSuccess('Listo', 'Avisamos que hay un cupo disponible')
-  await load()
 }
 
 async function createPackage() {
@@ -139,7 +144,8 @@ async function createPackage() {
         validityDays: Number(pkgForm.value.validityDays) || undefined,
       }),
     })
-    pkgForm.value = { name: '', sessions: 5, price: 100000, serviceId: '', validityDays: 90 }
+    showCreatePkgModal.value = false
+    resetPkgForm()
     await toastSuccess('Paquete listo', 'Ya puedes venderlo a un cliente')
     await load()
   } catch (e) {
@@ -157,11 +163,37 @@ async function sellPackage() {
       method: 'POST',
       body: JSON.stringify(sellForm.value),
     })
+    showSellModal.value = false
     sellForm.value = { packageId: '', clientId: '' }
     await toastSuccess('Venta registrada', 'El cliente ya tiene sus visitas a favor')
     await load()
   } catch (e) {
     await toastError('Venta', e instanceof Error ? e.message : 'Error')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function togglePackage(pkg: { id: string; name: string; isActive: boolean }) {
+  const next = !pkg.isActive
+  const ok = await confirmAction({
+    title: next ? `¿Activar «${pkg.name}»?` : `¿Desactivar «${pkg.name}»?`,
+    text: next
+      ? 'Volverá a aparecer al vender paquetes.'
+      : 'No se podrá vender hasta que lo actives de nuevo.',
+    confirmText: next ? 'Activar' : 'Desactivar',
+  })
+  if (!ok) return
+  busy.value = true
+  try {
+    await api(`/packages/${pkg.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive: next }),
+    })
+    await toastSuccess(next ? 'Paquete activo' : 'Paquete desactivado')
+    await load()
+  } catch (e) {
+    await toastError('Paquete', e instanceof Error ? e.message : 'Error')
   } finally {
     busy.value = false
   }
@@ -306,12 +338,11 @@ onMounted(load)
       <p class="section-eyebrow">Fideliza y vende más</p>
       <h1 class="font-display text-3xl font-bold md:text-4xl">Crecimiento</h1>
       <p class="mt-2 max-w-2xl text-sm text-ink-muted">
-        Gestiona espera, packs de sesiones, descuentos y tarjetas regalo con un flujo simple.
+        Packs de sesiones, cupones y tarjetas regalo con un flujo simple.
       </p>
       <nav class="mt-5 flex flex-wrap gap-2 text-sm">
         <RouterLink
           v-for="t in [
-            { id: 'waitlist', label: 'Lista de espera', icon: Clock3 },
             { id: 'packages', label: 'Paquetes', icon: Package },
             { id: 'coupons', label: 'Cupones', icon: Percent },
             { id: 'gifts', label: 'Gift cards', icon: Gift },
@@ -331,63 +362,111 @@ onMounted(load)
       </nav>
     </header>
 
-    <!-- ESPERA -->
-    <section v-if="tab === 'waitlist'" class="space-y-4">
-      <article class="surface p-5 md:p-6">
-        <div class="flex items-start gap-3">
-          <div class="rounded-2xl bg-brand-50 p-2.5 text-brand-800 dark:bg-brand-950 dark:text-brand-300">
-            <Users class="h-5 w-5" />
+    <!-- PAQUETES -->
+    <section v-if="tab === 'packages'" class="space-y-4">
+      <article class="surface overflow-hidden">
+        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-black/5 p-5 md:p-6 dark:border-white/10">
+          <div class="flex items-start gap-3">
+            <div class="rounded-2xl bg-brand-50 p-2.5 text-brand-800 dark:bg-brand-950 dark:text-brand-300">
+              <Package class="h-5 w-5" />
+            </div>
+            <div>
+              <h2 class="font-display text-xl font-semibold">Catálogo de paquetes</h2>
+              <p class="mt-1 text-sm text-ink-muted">
+                Crea packs de visitas y véndelos a tus clientes.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 class="font-display text-xl font-semibold">Lista de espera</h2>
-            <p class="mt-1 text-sm text-ink-muted">
-              Cuando no hay agenda libre, anota al cliente aquí y ofrécele el próximo cupo.
-            </p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn-ghost !py-2.5 !px-4" @click="openSell()">
+              <ShoppingBag class="h-4 w-4" />
+              Vender
+            </button>
+            <button type="button" class="btn-primary !py-2.5 !px-4" @click="openCreatePkg">
+              <Plus class="h-4 w-4" />
+              Nuevo paquete
+            </button>
           </div>
         </div>
 
-        <ul class="mt-5 space-y-3">
-          <li
-            v-for="row in waitlist"
-            :key="row.id"
-            class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-black/5 bg-white/60 px-4 py-3 dark:border-white/10 dark:bg-white/5"
-          >
-            <div>
-              <p class="font-semibold">
-                {{ row.client?.firstName }} {{ row.client?.lastName }}
-              </p>
-              <p class="text-sm text-ink-muted">
-                {{ row.service?.name || 'Servicio' }}
-                · {{ waitStatus(row.status) }}
-              </p>
-            </div>
-            <button
-              v-if="row.status === 'WAITING'"
-              type="button"
-              class="rounded-full bg-brand-700 px-4 py-2 text-xs font-semibold text-white"
-              @click="notifyWait(row.id)"
-            >
-              Ofertar cupo
-            </button>
-            <span
-              v-else
-              class="rounded-full bg-black/5 px-3 py-1 text-xs font-semibold text-ink-muted dark:bg-white/10"
-            >
-              {{ waitStatus(row.status) }}
-            </span>
-          </li>
-          <li
-            v-if="!waitlist.length"
-            class="rounded-2xl border border-dashed border-black/10 px-4 py-10 text-center text-sm text-ink-muted dark:border-white/10"
-          >
-            Nadie en espera por ahora.
-          </li>
-        </ul>
-      </article>
-    </section>
+        <div v-if="!packages.length" class="px-6 py-14 text-center">
+          <Package class="mx-auto h-10 w-10 text-ink-muted/40" />
+          <p class="mt-3 font-display text-lg font-bold">Sin paquetes</p>
+          <p class="mt-1 text-sm text-ink-muted">Crea el primero para empezar a vender visitas.</p>
+          <button type="button" class="btn-primary mt-5 !py-2.5" @click="openCreatePkg">
+            <Plus class="h-4 w-4" />
+            Crear paquete
+          </button>
+        </div>
 
-    <!-- PAQUETES -->
-    <section v-else-if="tab === 'packages'" class="space-y-4">
+        <div v-else class="overflow-x-auto">
+          <table class="w-full min-w-[720px] text-left text-sm">
+            <thead class="bg-black/[0.03] text-xs uppercase tracking-wide text-ink-muted dark:bg-white/5">
+              <tr>
+                <th class="px-4 py-3 font-semibold">Nombre</th>
+                <th class="px-4 py-3 font-semibold">Servicio</th>
+                <th class="px-4 py-3 font-semibold">Visitas</th>
+                <th class="px-4 py-3 font-semibold">Precio</th>
+                <th class="px-4 py-3 font-semibold">Vigencia</th>
+                <th class="px-4 py-3 font-semibold">Estado</th>
+                <th class="px-4 py-3 font-semibold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="p in packages"
+                :key="p.id"
+                class="border-t border-black/5 dark:border-white/10"
+              >
+                <td class="px-4 py-3 font-semibold">{{ p.name }}</td>
+                <td class="px-4 py-3 text-ink-muted">
+                  {{ p.service?.name || 'Cualquiera' }}
+                </td>
+                <td class="px-4 py-3">{{ p.sessions }}</td>
+                <td class="px-4 py-3">{{ money(p.price) }}</td>
+                <td class="px-4 py-3 text-ink-muted">
+                  {{ p.validityDays ? `${p.validityDays} días` : 'Sin límite' }}
+                </td>
+                <td class="px-4 py-3">
+                  <span
+                    class="rounded-full px-2.5 py-1 text-xs font-bold"
+                    :class="
+                      p.isActive
+                        ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : 'bg-black/5 text-ink-muted dark:bg-white/10'
+                    "
+                  >
+                    {{ p.isActive ? 'Activo' : 'Inactivo' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 disabled:opacity-40 dark:bg-brand-950 dark:text-brand-300"
+                      :disabled="!p.isActive || busy"
+                      @click="openSell(p.id)"
+                    >
+                      <ShoppingBag class="h-3.5 w-3.5" />
+                      Vender
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-ink-muted hover:text-ink dark:bg-white/5"
+                      :disabled="busy"
+                      @click="togglePackage(p)"
+                    >
+                      <Power class="h-3.5 w-3.5" />
+                      {{ p.isActive ? 'Desactivar' : 'Activar' }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
       <article class="surface p-5 md:p-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="flex items-start gap-3">
@@ -397,8 +476,7 @@ onMounted(load)
             <div>
               <h2 class="font-display text-xl font-semibold">Visitas de clientes</h2>
               <p class="mt-1 max-w-xl text-sm text-ink-muted">
-                Aquí descuentas visitas manualmente. También se descuenta sola al marcar la cita como
-                <b>Atendida</b> en el calendario.
+                Descuenta visitas manualmente o al marcar la cita como <b>Atendida</b> en el calendario.
               </p>
             </div>
           </div>
@@ -410,117 +488,124 @@ onMounted(load)
         </div>
 
         <div class="mt-4">
-          <input
-            v-model="purchaseFilter"
-            type="search"
-            placeholder="Buscar cliente o paquete…"
-            class="input-field !rounded-xl !py-3"
-          />
+          <label class="block text-sm">
+            <span class="mb-1.5 block text-ink-muted">Buscar</span>
+            <input
+              v-model="purchaseFilter"
+              type="search"
+              placeholder="Cliente o paquete…"
+              class="input-field !rounded-xl !py-3"
+            />
+          </label>
         </div>
 
-        <div class="mt-4 grid gap-3">
-          <article
-            v-for="b in filteredPurchases"
-            :key="b.id"
-            class="rounded-2xl border border-black/5 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5"
-          >
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p class="font-semibold">
+        <div class="mt-4 overflow-x-auto rounded-2xl border border-black/5 dark:border-white/10">
+          <table class="w-full min-w-[640px] text-left text-sm">
+            <thead class="bg-black/[0.03] text-xs uppercase tracking-wide text-ink-muted dark:bg-white/5">
+              <tr>
+                <th class="px-4 py-3 font-semibold">Cliente</th>
+                <th class="px-4 py-3 font-semibold">Paquete</th>
+                <th class="px-4 py-3 font-semibold">Progreso</th>
+                <th class="px-4 py-3 font-semibold">Estado</th>
+                <th class="px-4 py-3 font-semibold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="b in filteredPurchases"
+                :key="b.id"
+                class="border-t border-black/5 dark:border-white/10"
+              >
+                <td class="px-4 py-3 font-semibold">
                   {{ b.client?.firstName }} {{ b.client?.lastName }}
-                </p>
-                <p class="text-sm text-ink-muted">
+                </td>
+                <td class="px-4 py-3 text-ink-muted">
                   {{ b.package?.name }}
                   <span v-if="b.package?.service?.name"> · {{ b.package.service.name }}</span>
-                </p>
-              </div>
-              <span
-                class="rounded-full px-2.5 py-1 text-xs font-bold"
-                :class="
-                  purchaseStatus(b) === 'Activo'
-                    ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                    : purchaseStatus(b) === 'Vencido'
-                      ? 'bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                      : 'bg-black/5 text-ink-muted dark:bg-white/10'
-                "
-              >
-                {{ purchaseStatus(b) }}
-              </span>
-            </div>
-
-            <div class="mt-3">
-              <div class="mb-1.5 flex items-center justify-between text-xs">
-                <span class="font-semibold text-ink-muted">
-                  {{ b.usedSessions }} usadas · {{ remaining(b) }} disponibles
-                </span>
-                <span class="font-bold">{{ b.usedSessions }}/{{ b.totalSessions }}</span>
-              </div>
-              <div class="h-2 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
-                <div
-                  class="h-full rounded-full bg-brand-600 transition-all"
-                  :style="{ width: `${progressPct(b)}%` }"
-                />
-              </div>
-              <p v-if="b.expiresAt" class="mt-1.5 text-xs text-ink-muted">
-                Vence {{ new Date(b.expiresAt).toLocaleDateString('es-CO') }}
-              </p>
-            </div>
-
-            <div class="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                class="inline-flex items-center gap-1.5 rounded-full bg-brand-700 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                :disabled="
-                  consumeBusyId === b.id ||
-                  remaining(b) < 1 ||
-                  purchaseStatus(b) !== 'Activo'
-                "
-                @click="consumeVisit(b.id)"
-              >
-                <Minus class="h-3.5 w-3.5" />
-                Usar 1 visita
-              </button>
-              <button
-                type="button"
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white/80 px-4 py-2 text-xs font-semibold dark:border-white/10 dark:bg-white/5 disabled:opacity-50"
-                :disabled="consumeBusyId === b.id || b.usedSessions < 1"
-                @click="restoreVisit(b.id)"
-              >
-                <RotateCcw class="h-3.5 w-3.5" />
-                Devolver visita
-              </button>
-            </div>
-          </article>
-
-          <p
-            v-if="!filteredPurchases.length"
-            class="rounded-2xl border border-dashed border-black/10 px-4 py-10 text-center text-sm text-ink-muted dark:border-white/10"
-          >
-            {{
-              purchases.length
-                ? 'No hay resultados con ese filtro.'
-                : 'Aún no hay paquetes vendidos. Créalo y véndelo abajo.'
-            }}
-          </p>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="min-w-[140px]">
+                    <div class="mb-1 flex justify-between text-xs">
+                      <span class="text-ink-muted">{{ remaining(b) }} disponibles</span>
+                      <span class="font-bold">{{ b.usedSessions }}/{{ b.totalSessions }}</span>
+                    </div>
+                    <div class="h-1.5 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+                      <div
+                        class="h-full rounded-full bg-brand-600"
+                        :style="{ width: `${progressPct(b)}%` }"
+                      />
+                    </div>
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <span
+                    class="rounded-full px-2.5 py-1 text-xs font-bold"
+                    :class="
+                      purchaseStatus(b) === 'Activo'
+                        ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : purchaseStatus(b) === 'Vencido'
+                          ? 'bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                          : 'bg-black/5 text-ink-muted dark:bg-white/10'
+                    "
+                  >
+                    {{ purchaseStatus(b) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                      :disabled="
+                        consumeBusyId === b.id ||
+                        remaining(b) < 1 ||
+                        purchaseStatus(b) !== 'Activo'
+                      "
+                      @click="consumeVisit(b.id)"
+                    >
+                      <Minus class="h-3.5 w-3.5" />
+                      Usar 1
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-ink-muted dark:bg-white/5 disabled:opacity-40"
+                      :disabled="consumeBusyId === b.id || b.usedSessions < 1"
+                      @click="restoreVisit(b.id)"
+                    >
+                      <RotateCcw class="h-3.5 w-3.5" />
+                      Devolver
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!filteredPurchases.length">
+                <td colspan="5" class="px-4 py-10 text-center text-ink-muted">
+                  {{
+                    purchases.length
+                      ? 'No hay resultados con ese filtro.'
+                      : 'Aún no hay paquetes vendidos.'
+                  }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </article>
 
-      <div class="grid gap-4 lg:grid-cols-2">
-        <article class="surface p-5 md:p-6">
-          <div class="flex items-start gap-3">
-            <div class="rounded-2xl bg-brand-50 p-2.5 text-brand-800 dark:bg-brand-950 dark:text-brand-300">
-              <Package class="h-5 w-5" />
-            </div>
-            <div>
-              <h2 class="font-display text-xl font-semibold">1. Crear paquete</h2>
-              <p class="mt-1 text-sm text-ink-muted">
-                Define cuántas visitas incluye y a qué precio lo vendes.
-              </p>
-            </div>
-          </div>
+      <!-- Modal crear paquete -->
+      <div
+        v-if="showCreatePkgModal"
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
+        @click.self="showCreatePkgModal = false"
+      >
+        <div class="surface w-full max-w-lg p-6 shadow-lift">
+          <h2 class="font-display text-xl font-bold">Nuevo paquete</h2>
+          <p class="mt-1 text-sm text-ink-muted">
+            Define cuántas visitas incluye y a qué precio lo vendes.
+          </p>
           <div class="mt-5 space-y-3">
             <label class="block text-sm">
-              <span class="mb-1.5 block text-ink-muted">Nombre</span>
+              <span class="mb-1.5 block font-medium text-ink">Nombre</span>
               <input
                 v-model="pkgForm.name"
                 placeholder="Ej. 5 cortes clásicos"
@@ -528,7 +613,7 @@ onMounted(load)
               />
             </label>
             <label class="block text-sm">
-              <span class="mb-1.5 block text-ink-muted">Servicio (opcional)</span>
+              <span class="mb-1.5 block font-medium text-ink">Servicio</span>
               <select v-model="pkgForm.serviceId" class="input-field !rounded-xl !py-3">
                 <option value="">Cualquier servicio</option>
                 <option v-for="s in services" :key="s.id" :value="s.id">{{ s.name }}</option>
@@ -536,7 +621,7 @@ onMounted(load)
             </label>
             <div class="grid grid-cols-2 gap-3">
               <label class="block text-sm">
-                <span class="mb-1.5 block text-ink-muted">Visitas</span>
+                <span class="mb-1.5 block font-medium text-ink">Visitas incluidas</span>
                 <input
                   v-model.number="pkgForm.sessions"
                   type="number"
@@ -545,7 +630,7 @@ onMounted(load)
                 />
               </label>
               <label class="block text-sm">
-                <span class="mb-1.5 block text-ink-muted">Precio</span>
+                <span class="mb-1.5 block font-medium text-ink">Precio</span>
                 <input
                   v-model.number="pkgForm.price"
                   type="number"
@@ -556,7 +641,7 @@ onMounted(load)
               </label>
             </div>
             <label class="block text-sm">
-              <span class="mb-1.5 block text-ink-muted">Vigencia (días)</span>
+              <span class="mb-1.5 block font-medium text-ink">Vigencia (días)</span>
               <input
                 v-model.number="pkgForm.validityDays"
                 type="number"
@@ -564,71 +649,72 @@ onMounted(load)
                 class="input-field !rounded-xl !py-3"
               />
             </label>
+          </div>
+          <div class="mt-6 flex justify-end gap-2">
+            <button type="button" class="btn-ghost" @click="showCreatePkgModal = false">
+              Cancelar
+            </button>
             <button
               type="button"
-              class="btn-primary !rounded-xl !px-5 !py-3"
+              class="btn-primary"
               :disabled="busy || !pkgForm.name.trim()"
               @click="createPackage"
             >
-              <Plus class="h-4 w-4" />
-              Guardar paquete
+              {{ busy ? 'Guardando…' : 'Crear paquete' }}
             </button>
           </div>
+        </div>
+      </div>
 
-          <div v-if="packages.length" class="mt-6 space-y-2">
-            <p class="text-xs font-semibold uppercase tracking-wide text-ink-muted">Catálogo</p>
-            <div
-              v-for="p in packages"
-              :key="p.id"
-              class="rounded-xl border border-black/5 bg-white/50 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/5"
-            >
-              <b>{{ p.name }}</b>
-              · {{ p.sessions }} visitas · {{ money(p.price) }}
-            </div>
-          </div>
-        </article>
-
-        <article class="surface p-5 md:p-6">
-          <div class="flex items-start gap-3">
-            <div class="rounded-2xl bg-amber-50 p-2.5 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-              <Sparkles class="h-5 w-5" />
-            </div>
-            <div>
-              <h2 class="font-display text-xl font-semibold">2. Vender a un cliente</h2>
-              <p class="mt-1 text-sm text-ink-muted">
-                Se registra el cobro y el cliente queda con visitas a favor.
-              </p>
-            </div>
-          </div>
+      <!-- Modal vender paquete -->
+      <div
+        v-if="showSellModal"
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
+        @click.self="showSellModal = false"
+      >
+        <div class="surface w-full max-w-lg p-6 shadow-lift">
+          <h2 class="font-display text-xl font-bold">Vender paquete</h2>
+          <p class="mt-1 text-sm text-ink-muted">
+            Se registra el cobro y el cliente queda con visitas a favor.
+          </p>
           <div class="mt-5 space-y-3">
             <label class="block text-sm">
-              <span class="mb-1.5 block text-ink-muted">Paquete</span>
+              <span class="mb-1.5 block font-medium text-ink">Paquete</span>
               <select v-model="sellForm.packageId" class="input-field !rounded-xl !py-3">
-                <option value="">Selecciona…</option>
-                <option v-for="p in packages.filter((x) => x.isActive)" :key="p.id" :value="p.id">
+                <option value="">Selecciona un paquete…</option>
+                <option
+                  v-for="p in packages.filter((x) => x.isActive)"
+                  :key="p.id"
+                  :value="p.id"
+                >
                   {{ p.name }} ({{ p.sessions }} · {{ money(p.price) }})
                 </option>
               </select>
             </label>
             <label class="block text-sm">
-              <span class="mb-1.5 block text-ink-muted">Cliente</span>
+              <span class="mb-1.5 block font-medium text-ink">Cliente</span>
               <select v-model="sellForm.clientId" class="input-field !rounded-xl !py-3">
-                <option value="">Selecciona…</option>
+                <option value="">Selecciona un cliente…</option>
                 <option v-for="c in clients" :key="c.id" :value="c.id">
                   {{ c.firstName }} {{ c.lastName }}
                 </option>
               </select>
             </label>
+          </div>
+          <div class="mt-6 flex justify-end gap-2">
+            <button type="button" class="btn-ghost" @click="showSellModal = false">
+              Cancelar
+            </button>
             <button
               type="button"
-              class="btn-primary !rounded-xl !px-5 !py-3"
+              class="btn-primary"
               :disabled="busy || !sellForm.packageId || !sellForm.clientId"
               @click="sellPackage"
             >
-              Registrar venta
+              {{ busy ? 'Registrando…' : 'Registrar venta' }}
             </button>
           </div>
-        </article>
+        </div>
       </div>
     </section>
 

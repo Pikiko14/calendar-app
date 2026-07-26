@@ -111,7 +111,7 @@ const monthChart = computed(() => ({
   labels: metrics.value?.monthly.labels ?? [],
   datasets: [
     {
-      label: 'Ingresos',
+      label: 'Facturado',
       data: metrics.value?.monthly.data ?? [],
       backgroundColor: '#0f766e',
       borderRadius: 10,
@@ -136,13 +136,13 @@ const stats = computed(() => [
     tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
   },
   {
-    label: 'Ingresos hoy',
+    label: 'Facturado hoy',
     value: Number(metrics.value?.revenue ?? 0).toLocaleString('es-CO', {
       style: 'currency',
       currency: 'COP',
       maximumFractionDigits: 0,
     }),
-    hint: 'Pagos confirmados',
+    hint: 'Facturas pagadas',
     icon: Wallet,
     tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   },
@@ -399,8 +399,8 @@ onMounted(async () => {
         <article class="surface p-6">
           <div class="mb-1 flex items-center justify-between">
             <div>
-              <h2 class="font-display text-xl font-bold">Ingresos del mes</h2>
-              <p class="text-xs text-ink-muted">Pagos registrados</p>
+              <h2 class="font-display text-xl font-bold">Facturado del mes</h2>
+              <p class="text-xs text-ink-muted">Solo facturas pagadas</p>
             </div>
             <span class="grid h-10 w-10 place-items-center rounded-2xl bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
               <Wallet class="h-5 w-5" />

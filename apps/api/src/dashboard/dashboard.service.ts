@@ -10,7 +10,7 @@ export class DashboardService {
     const dayStart = dayjs().startOf('day').toDate();
     const dayEnd = dayjs().endOf('day').toDate();
     const weekStart = dayjs().startOf('week').toDate();
-    const monthStart = dayjs().startOf('month').toDate();
+    const sixMonthsAgo = dayjs().subtract(5, 'month').startOf('month').toDate();
 
     const [
       today,
@@ -19,7 +19,7 @@ export class DashboardService {
       cancelled,
       noShows,
       weekAppointments,
-      monthPayments,
+      monthInvoices,
       topServiceGroups,
       topWorkerGroups,
     ] = await Promise.all([
@@ -34,9 +34,13 @@ export class DashboardService {
           deletedAt: null,
         },
       }),
-      this.prisma.payment.aggregate({
-        where: { tenantId, status: 'PAID', paidAt: { gte: dayStart, lte: dayEnd } },
-        _sum: { amount: true },
+      this.prisma.invoice.aggregate({
+        where: {
+          tenantId,
+          status: 'PAID',
+          paidAt: { gte: dayStart, lte: dayEnd },
+        },
+        _sum: { total: true },
       }),
       this.prisma.appointment.count({
         where: { tenantId, status: 'CANCELLED', startAt: { gte: dayStart, lte: dayEnd } },
@@ -48,9 +52,13 @@ export class DashboardService {
         where: { tenantId, startAt: { gte: weekStart }, deletedAt: null },
         select: { startAt: true },
       }),
-      this.prisma.payment.findMany({
-        where: { tenantId, status: 'PAID', paidAt: { gte: monthStart } },
-        select: { amount: true, paidAt: true },
+      this.prisma.invoice.findMany({
+        where: {
+          tenantId,
+          status: 'PAID',
+          paidAt: { gte: sixMonthsAgo },
+        },
+        select: { total: true, paidAt: true },
       }),
       this.prisma.appointment.groupBy({
         by: ['serviceId'],
@@ -83,7 +91,6 @@ export class DashboardService {
     for (const a of weekAppointments) {
       weekCounts[dayjs(a.startAt).day()] += 1;
     }
-    // reorder to Mon-Sun for UI
     const weekly = {
       labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
       data: [
@@ -102,18 +109,18 @@ export class DashboardService {
       const m = dayjs().subtract(i, 'month');
       monthlyMap.set(m.format('MMM'), 0);
     }
-    for (const p of monthPayments) {
-      if (!p.paidAt) continue;
-      const key = dayjs(p.paidAt).format('MMM');
+    for (const inv of monthInvoices) {
+      if (!inv.paidAt) continue;
+      const key = dayjs(inv.paidAt).format('MMM');
       if (monthlyMap.has(key)) {
-        monthlyMap.set(key, (monthlyMap.get(key) || 0) + Number(p.amount));
+        monthlyMap.set(key, (monthlyMap.get(key) || 0) + Number(inv.total));
       }
     }
 
     return {
       today,
       completedToday,
-      revenue: Number(revenueToday._sum.amount ?? 0),
+      revenue: Number(revenueToday._sum.total ?? 0),
       cancelled,
       noShows,
       weekly,

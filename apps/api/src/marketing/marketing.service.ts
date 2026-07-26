@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { InvoicesService } from '../invoices/invoices.service';
 
 @Injectable()
 export class MarketingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly invoices: InvoicesService,
+  ) {}
 
   listCoupons(tenantId: string) {
     return this.prisma.coupon.findMany({
@@ -77,16 +81,50 @@ export class MarketingService {
     const code =
       dto.code?.trim().toUpperCase() ||
       `GC-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    return this.prisma.giftCard.create({
-      data: {
-        tenantId,
-        code,
-        balance: new Prisma.Decimal(dto.amount),
-        initial: new Prisma.Decimal(dto.amount),
-        clientId: dto.clientId,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-      },
-    });
+    return this.prisma.giftCard
+      .create({
+        data: {
+          tenantId,
+          code,
+          balance: new Prisma.Decimal(dto.amount),
+          initial: new Prisma.Decimal(dto.amount),
+          clientId: dto.clientId,
+          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+        },
+        include: {
+          client: {
+            select: { id: true, firstName: true, lastName: true, phone: true },
+          },
+        },
+      })
+      .then(async (gift) => {
+        const amount = Number(dto.amount);
+        const { invoice, payment } = await this.invoices.issuePaidSale(
+          tenantId,
+          {
+            clientId: dto.clientId,
+            description: `Gift card ${gift.code}`,
+            amount,
+            notes: `Gift card ${gift.code}`,
+            metadata: {
+              type: 'gift_card',
+              giftCardId: gift.id,
+              code: gift.code,
+              clientId: dto.clientId || null,
+            },
+          },
+        );
+        return {
+          ...gift,
+          invoice: {
+            id: invoice.id,
+            number: invoice.number,
+            total: invoice.total,
+            status: invoice.status,
+          },
+          payment: { id: payment.id, amount: payment.amount },
+        };
+      });
   }
 
   async toggleGiftCard(tenantId: string, id: string, isActive: boolean) {

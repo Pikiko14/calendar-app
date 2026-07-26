@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { InvoicesService } from '../invoices/invoices.service';
 
 @Injectable()
 export class PackagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly invoices: InvoicesService,
+  ) {}
 
   list(tenantId: string) {
     return this.prisma.servicePackage.findMany({
@@ -116,43 +120,48 @@ export class PackagesService {
       ? new Date(Date.now() + pkg.validityDays * 86400000)
       : null;
 
-    const [purchase] = await this.prisma.$transaction([
-      this.prisma.clientPackage.create({
-        data: {
-          tenantId,
-          clientId: dto.clientId,
-          packageId: pkg.id,
-          totalSessions: pkg.sessions,
-          usedSessions: 0,
-          expiresAt,
-          notes: dto.notes,
+    const purchase = await this.prisma.clientPackage.create({
+      data: {
+        tenantId,
+        clientId: dto.clientId,
+        packageId: pkg.id,
+        totalSessions: pkg.sessions,
+        usedSessions: 0,
+        expiresAt,
+        notes: dto.notes,
+      },
+      include: {
+        package: true,
+        client: {
+          select: { id: true, firstName: true, lastName: true, phone: true },
         },
-        include: {
-          package: true,
-          client: {
-            select: { id: true, firstName: true, lastName: true, phone: true },
-          },
-        },
-      }),
-      this.prisma.payment.create({
-        data: {
-          tenantId,
-          amount: pkg.price,
-          currency: 'COP',
-          status: 'PAID',
-          method: 'CASH',
-          provider: 'LOCAL',
-          paidAt: new Date(),
-          metadata: {
-            type: 'package',
-            packageId: pkg.id,
-            clientId: dto.clientId,
-          },
-        },
-      }),
-    ]);
+      },
+    });
 
-    return purchase;
+    const amount = Number(pkg.price);
+    const { invoice, payment } = await this.invoices.issuePaidSale(tenantId, {
+      clientId: dto.clientId,
+      description: `Paquete ${pkg.name} (${pkg.sessions} visitas)`,
+      amount,
+      notes: dto.notes || `Venta de paquete ${pkg.name}`,
+      metadata: {
+        type: 'package',
+        packageId: pkg.id,
+        clientPackageId: purchase.id,
+        clientId: dto.clientId,
+      },
+    });
+
+    return {
+      ...purchase,
+      invoice: {
+        id: invoice.id,
+        number: invoice.number,
+        total: invoice.total,
+        status: invoice.status,
+      },
+      payment: { id: payment.id, amount: payment.amount },
+    };
   }
 
   private purchaseInclude() {

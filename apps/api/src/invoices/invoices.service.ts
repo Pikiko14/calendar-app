@@ -244,6 +244,88 @@ export class InvoicesService {
     });
   }
 
+  /**
+   * Emite factura pagada (ISSUED→PAID + Payment) para ventas de catálogo
+   * (paquetes, gift cards, etc.).
+   */
+  async issuePaidSale(
+    tenantId: string,
+    input: {
+      clientId?: string | null;
+      description: string;
+      amount: number;
+      notes?: string;
+      metadata: Record<string, unknown>;
+      method?: PaymentMethod;
+      currency?: string;
+    },
+  ) {
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    if (amount < 0) {
+      throw new BadRequestException('El monto de la factura no es válido.');
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { currency: true },
+    });
+    const currency = input.currency || tenant?.currency || 'COP';
+    const number = await this.nextNumber(tenantId);
+    const method = input.method || PaymentMethod.CASH;
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          tenantId,
+          number,
+          clientId: input.clientId || undefined,
+          status: InvoiceStatus.PAID,
+          currency,
+          subtotal: amount,
+          tax: 0,
+          total: amount,
+          notes: input.notes,
+          paidAt: now,
+          metadata: input.metadata as Prisma.InputJsonValue,
+          items: {
+            create: [
+              {
+                description: input.description,
+                quantity: 1,
+                unitPrice: amount,
+                total: amount,
+                sortOrder: 0,
+              },
+            ],
+          },
+        },
+        include: {
+          client: {
+            select: { id: true, firstName: true, lastName: true, phone: true },
+          },
+          items: true,
+        },
+      });
+
+      const payment = await tx.payment.create({
+        data: {
+          tenantId,
+          invoiceId: invoice.id,
+          amount,
+          currency,
+          method,
+          provider: PaymentProvider.LOCAL,
+          status: PaymentStatus.PAID,
+          paidAt: now,
+          metadata: input.metadata as Prisma.InputJsonValue,
+        },
+      });
+
+      return { invoice, payment };
+    });
+  }
+
   async markPaid(tenantId: string, id: string, dto: PayInvoiceDto) {
     const invoice = await this.one(tenantId, id);
     if (invoice.status === InvoiceStatus.CANCELLED) {

@@ -42,13 +42,14 @@ export class ReportsService {
   }
 
   async overview(tenantId: string, from: Date, to: Date) {
-    const [payments, appointments, noShows, cancelled, completed] =
+    const [payments, paidInvoices, appointments, noShows, cancelled, completed] =
       await Promise.all([
         this.prisma.payment.findMany({
           where: {
             tenantId,
             status: 'PAID',
             paidAt: { gte: from, lte: to },
+            invoiceId: { not: null },
           },
           include: {
             appointment: {
@@ -65,6 +66,14 @@ export class ReportsService {
               },
             },
           },
+        }),
+        this.prisma.invoice.findMany({
+          where: {
+            tenantId,
+            status: 'PAID',
+            paidAt: { gte: from, lte: to },
+          },
+          select: { total: true },
         }),
         this.prisma.appointment.count({
           where: {
@@ -99,7 +108,7 @@ export class ReportsService {
         }),
       ]);
 
-    const revenueTotal = payments.reduce((s, p) => s + Number(p.amount), 0);
+    const revenueTotal = paidInvoices.reduce((s, inv) => s + Number(inv.total), 0);
 
     const byService = new Map<string, { name: string; count: number; revenue: number }>();
     const byWorker = new Map<
@@ -143,7 +152,7 @@ export class ReportsService {
       from,
       to,
       revenueTotal,
-      paymentsCount: payments.length,
+      paymentsCount: paidInvoices.length,
       appointments,
       completed,
       cancelled,

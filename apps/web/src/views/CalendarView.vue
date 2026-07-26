@@ -519,6 +519,7 @@ async function invoiceFromAppointment(item: Appointment, andPrint = false) {
   busyId.value = item.id
   try {
     let invoice = await api<any>(`/invoices/by-appointment/${item.id}`).catch(() => null)
+    let justCreated = false
     if (!invoice) {
       const ok = await confirmAction({
         title: '¿Generar factura?',
@@ -532,15 +533,23 @@ async function invoiceFromAppointment(item: Appointment, andPrint = false) {
         method: 'POST',
         body: JSON.stringify({ appointmentId: item.id }),
       })
-      await toastSuccess('Factura creada', invoice.number)
-    } else {
-      await toastSuccess('Factura existente', invoice.number)
+      justCreated = true
     }
 
     if (andPrint && invoice) {
       const full = invoice.items ? invoice : await api(`/invoices/${invoice.id}`)
       printInvoice(full, { name: auth.user?.tenant?.name })
+      void toastSuccess(
+        justCreated ? 'Factura creada' : 'Factura lista',
+        invoice.number,
+      )
+      return
     }
+
+    await toastSuccess(
+      justCreated ? 'Factura creada' : 'Factura existente',
+      invoice.number,
+    )
   } catch (e) {
     await toastError(
       'No se pudo facturar',

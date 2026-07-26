@@ -112,6 +112,8 @@ export async function toastSuccess(title: string, text?: string) {
     text,
     timer: 2200,
     showConfirmButton: false,
+    showCancelButton: false,
+    showDenyButton: false,
     timerProgressBar: true,
   })
 }
@@ -122,6 +124,9 @@ export async function toastError(title: string, text?: string) {
     icon: 'error',
     title,
     text,
+    showConfirmButton: true,
+    showCancelButton: false,
+    showDenyButton: false,
     confirmButtonText: 'Entendido',
   })
 }

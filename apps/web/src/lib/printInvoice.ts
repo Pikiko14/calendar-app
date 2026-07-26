@@ -188,22 +188,46 @@ export function printInvoice(
   }
 
   <p class="muted" style="margin-top:32px;text-align:center;">Gracias por su preferencia · ${escapeHtml(biz)}</p>
-  <script>
-    window.onload = function () {
-      window.focus();
-      window.print();
-    };
-  </script>
 </body>
 </html>`
 
-  const win = window.open('', '_blank', 'noopener,noreferrer,width=800,height=900')
-  if (!win) {
-    throw new Error('El navegador bloqueó la ventana de impresión. Permite pop-ups.')
+  printHtmlDocument(html)
+}
+
+/** Imprime HTML sin window.open (evita bloqueo de pop-ups del navegador). */
+function printHtmlDocument(html: string) {
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('aria-hidden', 'true')
+  iframe.style.cssText =
+    'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;'
+  document.body.appendChild(iframe)
+
+  const win = iframe.contentWindow
+  const doc = win?.document
+  if (!win || !doc) {
+    iframe.remove()
+    throw new Error('No se pudo preparar la impresión en este navegador.')
   }
-  win.document.open()
-  win.document.write(html)
-  win.document.close()
+
+  doc.open()
+  doc.write(html)
+  doc.close()
+
+  const cleanup = () => {
+    window.setTimeout(() => iframe.remove(), 1500)
+  }
+
+  const runPrint = () => {
+    try {
+      win.focus()
+      win.print()
+    } finally {
+      cleanup()
+    }
+  }
+
+  // Dar tiempo a que carguen estilos antes de imprimir
+  window.setTimeout(runPrint, 300)
 }
 
 function escapeHtml(value: string) {

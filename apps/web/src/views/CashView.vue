@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { Wallet, Receipt } from '@lucide/vue'
 import { api } from '@/api/client'
 import { confirmAction, toastError, toastSuccess } from '@/lib/swal'
+import type { CashStatus } from '@/composables/useCashGuard'
 
 type CashReg = {
   id: string
@@ -25,6 +26,7 @@ type Expense = {
 const current = ref<CashReg | null>(null)
 const history = ref<CashReg[]>([])
 const expenses = ref<Expense[]>([])
+const cashStatus = ref<CashStatus | null>(null)
 const loading = ref(true)
 const openingFloat = ref(0)
 const closingCash = ref(0)
@@ -42,14 +44,16 @@ function money(n: string | number | null | undefined) {
 async function load() {
   loading.value = true
   try {
-    const [cur, hist, exp] = await Promise.all([
+    const [cur, hist, exp, st] = await Promise.all([
       api<CashReg | null>('/cash/current'),
       api<CashReg[]>('/cash'),
       api<Expense[]>('/cash/expenses'),
+      api<CashStatus>('/cash/status'),
     ])
     current.value = cur
     history.value = hist
     expenses.value = exp
+    cashStatus.value = st
     if (cur) closingCash.value = Number(cur.openingFloat || 0)
   } catch (e) {
     await toastError('Caja', e instanceof Error ? e.message : 'Error')
@@ -137,6 +141,46 @@ onMounted(load)
       <p class="mt-1 text-sm text-ink-muted">Apertura, gastos y arqueo de cierre.</p>
     </header>
 
+    <div
+      v-if="cashStatus"
+      class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-black/5 bg-white/60 px-4 py-3 text-xs text-ink-muted dark:border-white/10 dark:bg-white/5"
+    >
+      <span v-if="cashStatus.branch">
+        Sede <b class="text-ink dark:text-mist">{{ cashStatus.branch.name }}</b>
+      </span>
+      <span v-if="cashStatus.businessOpenToday && cashStatus.openingTime">
+        Horario {{ cashStatus.openingTime }} – {{ cashStatus.closingTime }}
+      </span>
+      <span v-else-if="!cashStatus.businessOpenToday">Local cerrado hoy</span>
+      <span
+        :class="
+          cashStatus.isOpen
+            ? 'font-semibold text-emerald-700 dark:text-emerald-300'
+            : cashStatus.alreadyClosedToday
+              ? 'font-semibold text-ink-muted'
+              : 'font-semibold text-amber-700 dark:text-amber-300'
+        "
+      >
+        {{
+          cashStatus.isOpen
+            ? 'Caja abierta'
+            : cashStatus.alreadyClosedToday
+              ? 'Caja cerrada hoy'
+              : 'Sin caja abierta'
+        }}
+      </span>
+      <span
+        v-if="cashStatus.needsClose && cashStatus.minutesUntilClose != null"
+        class="font-semibold text-rose-700 dark:text-rose-300"
+      >
+        {{
+          cashStatus.minutesUntilClose <= 0
+            ? 'Pasó la hora de cierre'
+            : `Cierre en ~${cashStatus.minutesUntilClose} min`
+        }}
+      </span>
+    </div>
+
     <p v-if="loading" class="text-sm text-ink-muted">Cargando…</p>
 
     <section class="surface p-5">
@@ -170,23 +214,31 @@ onMounted(load)
       </div>
 
       <div v-else class="mt-4 space-y-3">
-        <p class="text-sm text-ink-muted">No hay caja abierta.</p>
-        <label class="block text-xs text-ink-muted">
-          Fondo inicial
-          <input
-            v-model.number="openingFloat"
-            type="number"
-            min="0"
-            class="mt-1 w-full max-w-xs rounded-xl border border-black/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-ink-soft"
-          />
-        </label>
-        <button
-          class="rounded-xl bg-brand-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          :disabled="busy"
-          @click="openCash"
-        >
-          Abrir caja
-        </button>
+        <p class="text-sm text-ink-muted">
+          {{
+            cashStatus?.alreadyClosedToday
+              ? 'La caja de hoy ya fue cerrada.'
+              : 'No hay caja abierta.'
+          }}
+        </p>
+        <template v-if="!cashStatus?.alreadyClosedToday">
+          <label class="block text-xs text-ink-muted">
+            Fondo inicial
+            <input
+              v-model.number="openingFloat"
+              type="number"
+              min="0"
+              class="mt-1 w-full max-w-xs rounded-xl border border-black/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-ink-soft"
+            />
+          </label>
+          <button
+            class="rounded-xl bg-brand-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            :disabled="busy"
+            @click="openCash"
+          >
+            Abrir caja
+          </button>
+        </template>
       </div>
     </section>
 
@@ -236,7 +288,11 @@ onMounted(load)
     <section class="surface p-5">
       <h2 class="font-display text-lg font-semibold">Historial</h2>
       <ul class="mt-3 space-y-2 text-sm">
-        <li v-for="h in history" :key="h.id" class="flex justify-between gap-3 border-b border-black/5 py-2 dark:border-white/5">
+        <li
+          v-for="h in history"
+          :key="h.id"
+          class="flex justify-between gap-3 border-b border-black/5 py-2 dark:border-white/5"
+        >
           <span>
             {{ new Date(h.openedAt).toLocaleDateString('es-CO') }}
             · {{ h.closedAt ? 'Cerrada' : 'Abierta' }}

@@ -16,16 +16,26 @@ import {
   BarChart3,
   Wallet,
   Sparkles,
+  X,
 } from '@lucide/vue'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
 import { mediaUrl } from '@/api/client'
 import { applyBrandTheme } from '@/lib/brand'
+import { useCashGuard } from '@/composables/useCashGuard'
 
 const route = useRoute()
 const router = useRouter()
 const theme = useThemeStore()
 const auth = useAuthStore()
+const {
+  banner: cashBanner,
+  showBanner: showCashBanner,
+  busy: cashBusy,
+  bannerAction: cashBannerAction,
+  dismissBanner: dismissCashBanner,
+  goToCash,
+} = useCashGuard()
 
 const tenantLogo = computed(() => mediaUrl(auth.user?.tenant?.logoUrl))
 const tenantName = computed(() => auth.user?.tenant?.name || 'Tu negocio')
@@ -193,6 +203,46 @@ watch(
           </button>
         </div>
       </header>
+
+      <div
+        v-if="showCashBanner && cashBanner"
+        :class="[
+          'sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 md:px-9',
+          cashBanner.kind === 'open'
+            ? 'border-amber-500/20 bg-amber-50 text-amber-950 dark:border-amber-400/20 dark:bg-amber-950/40 dark:text-amber-100'
+            : 'border-rose-500/20 bg-rose-50 text-rose-950 dark:border-rose-400/20 dark:bg-rose-950/40 dark:text-rose-100',
+        ]"
+      >
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold">{{ cashBanner.title }}</p>
+          <p class="text-xs opacity-80">{{ cashBanner.text }}</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="rounded-full bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-mist dark:text-ink"
+            :disabled="cashBusy"
+            @click="cashBannerAction()"
+          >
+            {{ cashBanner.actionLabel }}
+          </button>
+          <button
+            type="button"
+            class="rounded-full border border-current/20 px-3 py-1.5 text-xs font-medium opacity-80 hover:opacity-100"
+            @click="goToCash()"
+          >
+            Ir a Caja
+          </button>
+          <button
+            type="button"
+            class="grid h-8 w-8 place-items-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
+            title="Recordar más tarde"
+            @click="dismissCashBanner()"
+          >
+            <X class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
       <div class="mx-auto max-w-7xl p-5 md:p-9">
         <RouterView />

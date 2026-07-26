@@ -3,11 +3,12 @@ import { computed, onMounted, ref } from 'vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import 'dayjs/locale/es'
-import { ChevronLeft, ChevronRight, ChevronDown, UsersRound, Receipt, Printer } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, UsersRound, Receipt, Printer } from '@lucide/vue'
 import { api, mediaUrl } from '@/api/client'
 import { confirmAction, promptText, toastSuccess, toastError } from '@/lib/swal'
 import { useAuthStore } from '@/stores/auth'
 import { printInvoice } from '@/lib/printInvoice'
+import AppSelect from '@/components/ui/AppSelect.vue'
 
 dayjs.extend(isoWeek)
 dayjs.locale('es')
@@ -218,6 +219,16 @@ const statusLabel: Record<string, string> = {
   NO_SHOW: 'No Show',
   RESCHEDULED: 'Reprogramada',
 }
+
+const serviceFilterOptions = computed(() =>
+  services.value.map((s) => ({ value: s, label: s })),
+)
+
+const statusFilterOptions = computed(() => [
+  { value: 'Todos', label: 'Todos' },
+  ...Object.entries(statusLabel).map(([key, label]) => ({ value: key, label })),
+])
+
 
 const statusTone: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-800 border-amber-200',
@@ -687,40 +698,25 @@ onMounted(load)
             <p class="ml-2 font-display text-lg font-bold capitalize">{{ periodLabel }}</p>
           </div>
           <div class="flex flex-wrap items-end gap-3">
-            <label class="group flex min-w-[160px] flex-col gap-1.5">
+            <label class="group flex min-w-[180px] flex-col gap-1.5">
               <span class="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-muted">
                 Servicio
               </span>
-              <div class="relative">
-                <select
-                  v-model="service"
-                  class="h-11 w-full appearance-none rounded-2xl border border-brand-700/15 bg-mist/60 py-2.5 pl-4 pr-10 text-sm font-semibold text-ink shadow-soft outline-none transition hover:border-brand-700/30 hover:bg-white focus:border-brand-600 focus:bg-white focus:ring-4 focus:ring-brand-700/10 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.09] dark:focus:border-brand-400 dark:focus:ring-brand-400/15"
-                >
-                  <option v-for="s in services" :key="s">{{ s }}</option>
-                </select>
-                <ChevronDown
-                  class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-700/70 dark:text-brand-300"
-                />
-              </div>
+              <AppSelect
+                v-model="service"
+                :options="serviceFilterOptions"
+                button-class="!h-11 !rounded-2xl !py-2.5 !font-semibold"
+              />
             </label>
-            <label class="group flex min-w-[160px] flex-col gap-1.5">
+            <label class="group flex min-w-[180px] flex-col gap-1.5">
               <span class="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-muted">
                 Estado
               </span>
-              <div class="relative">
-                <select
-                  v-model="status"
-                  class="h-11 w-full appearance-none rounded-2xl border border-brand-700/15 bg-mist/60 py-2.5 pl-4 pr-10 text-sm font-semibold text-ink shadow-soft outline-none transition hover:border-brand-700/30 hover:bg-white focus:border-brand-600 focus:bg-white focus:ring-4 focus:ring-brand-700/10 dark:border-white/10 dark:bg-white/[0.06] dark:hover:bg-white/[0.09] dark:focus:border-brand-400 dark:focus:ring-brand-400/15"
-                >
-                  <option value="Todos">Todos</option>
-                  <option v-for="(label, key) in statusLabel" :key="key" :value="key">
-                    {{ label }}
-                  </option>
-                </select>
-                <ChevronDown
-                  class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-700/70 dark:text-brand-300"
-                />
-              </div>
+              <AppSelect
+                v-model="status"
+                :options="statusFilterOptions"
+                button-class="!h-11 !rounded-2xl !py-2.5 !font-semibold"
+              />
             </label>
           </div>
         </div>

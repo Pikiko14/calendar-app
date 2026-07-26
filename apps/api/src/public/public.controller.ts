@@ -204,6 +204,33 @@ export class PublicController {
     return { summary, items };
   }
 
+  /** Cupones activos para mostrar en el portal (popup / promo). */
+  @Public()
+  @Get(':slug/coupons')
+  async listCoupons(@Param('slug') slug: string) {
+    const tenant = await this.requireTenant(slug);
+    const now = new Date();
+    const rows = await this.prisma.coupon.findMany({
+      where: {
+        tenantId: tenant.id,
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      select: {
+        id: true,
+        code: true,
+        discountPct: true,
+        discountAmt: true,
+        expiresAt: true,
+        maxUses: true,
+        usedCount: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 12,
+    });
+    return rows.filter((c) => !c.maxUses || c.usedCount < c.maxUses);
+  }
+
   @Public()
   @Post(':slug/waitlist')
   async waitlist(

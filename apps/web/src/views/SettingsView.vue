@@ -7,6 +7,7 @@ import { applyBrandTheme } from '@/lib/brand'
 import { useAuthStore } from '@/stores/auth'
 import BusinessScheduleEditor from '@/components/BusinessScheduleEditor.vue'
 import LocationPicker from '@/components/LocationPicker.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 
 type SettingsTab =
   | 'marca'
@@ -95,6 +96,19 @@ const logoFile = ref<File | null>(null)
 const logoPreview = ref('')
 const timezone = ref('America/Bogota')
 const currency = ref('COP')
+
+const timezoneOptions = [
+  { value: 'America/Bogota', label: 'America/Bogota' },
+  { value: 'America/Mexico_City', label: 'America/Mexico_City' },
+  { value: 'America/Santiago', label: 'America/Santiago' },
+]
+
+const currencyOptions = [
+  { value: 'COP', label: 'COP' },
+  { value: 'MXN', label: 'MXN' },
+  { value: 'USD', label: 'USD' },
+  { value: 'CLP', label: 'CLP' },
+]
 const address = ref('')
 const city = ref('')
 const mapUrl = ref('')
@@ -986,20 +1000,15 @@ const showSaveBar = computed(() =>
           <div class="mt-4 grid gap-4 sm:grid-cols-2">
             <label class="text-sm text-ink-muted">
               Zona horaria
-              <select v-model="timezone" class="input-field mt-2">
-                <option>America/Bogota</option>
-                <option>America/Mexico_City</option>
-                <option>America/Santiago</option>
-              </select>
+              <div class="mt-2">
+                <AppSelect v-model="timezone" :options="timezoneOptions" />
+              </div>
             </label>
             <label class="text-sm text-ink-muted">
               Moneda
-              <select v-model="currency" class="input-field mt-2">
-                <option>COP</option>
-                <option>MXN</option>
-                <option>USD</option>
-                <option>CLP</option>
-              </select>
+              <div class="mt-2">
+                <AppSelect v-model="currency" :options="currencyOptions" />
+              </div>
             </label>
             <label class="text-sm text-ink-muted">
               Aviso mínimo (minutos)

@@ -31,6 +31,11 @@ class ExpenseDto {
 export class CashController {
   constructor(private readonly cash: CashService) {}
 
+  @Get('status')
+  status(@TenantId() tenantId: string) {
+    return this.cash.status(tenantId);
+  }
+
   @Get('current')
   current(@TenantId() tenantId: string) {
     return this.cash.current(tenantId);

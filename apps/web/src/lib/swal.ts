@@ -125,3 +125,48 @@ export async function toastError(title: string, text?: string) {
     confirmButtonText: 'Entendido',
   })
 }
+
+/** Prompt numérico (fondo / arqueo de caja). */
+export async function promptMoney(options: {
+  title: string
+  text?: string
+  inputLabel?: string
+  confirmText?: string
+  cancelText?: string
+  defaultValue?: number
+  min?: number
+}): Promise<number | null> {
+  const min = options.min ?? 0
+  const result = await Swal.fire({
+    ...baseOptions(),
+    icon: 'question',
+    title: options.title,
+    text: options.text,
+    input: 'number',
+    inputLabel: options.inputLabel || 'Monto (COP)',
+    inputValue: options.defaultValue ?? 0,
+    inputAttributes: {
+      min: String(min),
+      step: '1000',
+    },
+    showCancelButton: true,
+    confirmButtonText: options.confirmText || 'Confirmar',
+    cancelButtonText: options.cancelText || 'Más tarde',
+    confirmButtonColor: brand.confirm,
+    cancelButtonColor: brand.cancel,
+    customClass: {
+      ...baseOptions().customClass,
+      input:
+        '!rounded-2xl !border !border-black/10 !text-sm !mt-2 dark:!border-white/15 dark:!bg-white/5',
+    },
+    inputValidator: (value) => {
+      const n = Number(value)
+      if (Number.isNaN(n) || n < min) {
+        return `Ingresa un monto válido (≥ ${min}).`
+      }
+      return null
+    },
+  })
+  if (!result.isConfirmed) return null
+  return Number(result.value)
+}

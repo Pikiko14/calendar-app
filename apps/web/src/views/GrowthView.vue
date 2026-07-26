@@ -22,6 +22,7 @@ import { api } from '@/api/client'
 import { toastError, toastSuccess, confirmAction } from '@/lib/swal'
 import { printGiftCard } from '@/lib/printGiftCard'
 import GiftCardQr from '@/components/GiftCardQr.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
@@ -126,6 +127,38 @@ function clientName(c?: { firstName?: string; lastName?: string } | null) {
   if (!c) return ''
   return `${c.firstName || ''} ${c.lastName || ''}`.trim()
 }
+
+const serviceSelectOptions = computed(() => [
+  { value: '', label: 'Cualquier servicio' },
+  ...services.value.map((s) => ({ value: s.id, label: s.name })),
+])
+
+const sellPackageOptions = computed(() => [
+  { value: '', label: 'Selecciona un paquete…' },
+  ...packages.value
+    .filter((x) => x.isActive)
+    .map((p) => ({
+      value: p.id,
+      label: p.name,
+      description: `${p.sessions} visitas · ${money(p.price)}`,
+    })),
+])
+
+const clientSelectOptions = computed(() => [
+  { value: '', label: 'Selecciona un cliente…' },
+  ...clients.value.map((c) => ({
+    value: c.id,
+    label: `${c.firstName} ${c.lastName}`,
+  })),
+])
+
+const giftClientOptions = computed(() => [
+  { value: '', label: 'Quien la reciba' },
+  ...clients.value.map((c) => ({
+    value: c.id,
+    label: `${c.firstName} ${c.lastName}`,
+  })),
+])
 
 async function load() {
   try {
@@ -715,10 +748,12 @@ onMounted(load)
             </label>
             <label class="block text-sm">
               <span class="mb-1.5 block font-medium text-ink">Servicio</span>
-              <select v-model="pkgForm.serviceId" class="input-field !rounded-xl !py-3">
-                <option value="">Cualquier servicio</option>
-                <option v-for="s in services" :key="s.id" :value="s.id">{{ s.name }}</option>
-              </select>
+              <AppSelect
+                v-model="pkgForm.serviceId"
+                :options="serviceSelectOptions"
+                placeholder="Cualquier servicio"
+                button-class="!py-3"
+              />
             </label>
             <div class="grid grid-cols-2 gap-3">
               <label class="block text-sm">
@@ -781,25 +816,21 @@ onMounted(load)
           <div class="mt-5 space-y-3">
             <label class="block text-sm">
               <span class="mb-1.5 block font-medium text-ink">Paquete</span>
-              <select v-model="sellForm.packageId" class="input-field !rounded-xl !py-3">
-                <option value="">Selecciona un paquete…</option>
-                <option
-                  v-for="p in packages.filter((x) => x.isActive)"
-                  :key="p.id"
-                  :value="p.id"
-                >
-                  {{ p.name }} ({{ p.sessions }} · {{ money(p.price) }})
-                </option>
-              </select>
+              <AppSelect
+                v-model="sellForm.packageId"
+                :options="sellPackageOptions"
+                placeholder="Selecciona un paquete…"
+                button-class="!py-3"
+              />
             </label>
             <label class="block text-sm">
               <span class="mb-1.5 block font-medium text-ink">Cliente</span>
-              <select v-model="sellForm.clientId" class="input-field !rounded-xl !py-3">
-                <option value="">Selecciona un cliente…</option>
-                <option v-for="c in clients" :key="c.id" :value="c.id">
-                  {{ c.firstName }} {{ c.lastName }}
-                </option>
-              </select>
+              <AppSelect
+                v-model="sellForm.clientId"
+                :options="clientSelectOptions"
+                placeholder="Selecciona un cliente…"
+                button-class="!py-3"
+              />
             </label>
           </div>
           <div class="mt-6 flex justify-end gap-2">
@@ -971,12 +1002,12 @@ onMounted(load)
             </label>
             <label class="block text-sm">
               <span class="mb-1.5 block text-ink-muted">Para (cliente, opcional)</span>
-              <select v-model="giftForm.clientId" class="input-field !rounded-xl !py-3">
-                <option value="">Quien la reciba</option>
-                <option v-for="c in clients" :key="c.id" :value="c.id">
-                  {{ c.firstName }} {{ c.lastName }}
-                </option>
-              </select>
+              <AppSelect
+                v-model="giftForm.clientId"
+                :options="giftClientOptions"
+                placeholder="Quien la reciba"
+                button-class="!py-3"
+              />
             </label>
             <label class="block text-sm">
               <span class="mb-1.5 block text-ink-muted">Mensaje en la tarjeta</span>

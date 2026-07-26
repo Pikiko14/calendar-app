@@ -8,8 +8,6 @@ import {
   Printer,
   MessageCircle,
   Download,
-  ChevronDown,
-  Check,
   Gift,
   Package,
   ScanLine,
@@ -20,6 +18,7 @@ import { printInvoice } from '@/lib/printInvoice'
 import { parseGiftCardScan } from '@/lib/giftCardQr'
 import { canScanGiftCardQr, scanGiftCardQr } from '@/lib/scanGiftCardQr'
 import { useAuthStore } from '@/stores/auth'
+import AppSelect from '@/components/ui/AppSelect.vue'
 
 type InvoiceRow = {
   id: string
@@ -72,7 +71,6 @@ const showModal = ref(false)
 const busy = ref(false)
 const appointments = ref<AppointmentOption[]>([])
 const selectedAppointmentId = ref('')
-const appointmentMenuOpen = ref(false)
 const selectedInvoice = ref<InvoiceRow | null>(null)
 const auth = useAuthStore()
 
@@ -103,32 +101,57 @@ const scanVideo = ref<HTMLVideoElement | null>(null)
 let scanAbort: AbortController | null = null
 const supportsQrScan = canScanGiftCardQr()
 
-const selectedAppointment = computed(() =>
-  appointments.value.find((a) => a.id === selectedAppointmentId.value) || null,
+const appointmentSelectOptions = computed(() =>
+  appointments.value.map((a) => ({
+    value: a.id,
+    label: `${a.client.firstName} ${a.client.lastName} · ${a.service.name}`,
+    description: `${new Date(a.startAt).toLocaleString('es-CO')} · ${money(a.price)}`,
+  })),
 )
 
-function appointmentLabel(a: AppointmentOption) {
-  return `${new Date(a.startAt).toLocaleString('es-CO')} · ${a.client.firstName} ${a.client.lastName} · ${a.service.name} · ${money(a.price)}`
-}
+const clientSelectOptions = computed(() => [
+  { value: '', label: 'Sin asignar' },
+  ...clients.value.map((c) => ({
+    value: c.id,
+    label: `${c.firstName} ${c.lastName}`,
+  })),
+])
 
-function pickAppointment(id: string) {
-  selectedAppointmentId.value = id
-  appointmentMenuOpen.value = false
-}
+const clientRequiredOptions = computed(() => [
+  { value: '', label: 'Selecciona…' },
+  ...clients.value.map((c) => ({
+    value: c.id,
+    label: `${c.firstName} ${c.lastName}`,
+  })),
+])
 
-function onDocClick(e: MouseEvent) {
-  const target = e.target as HTMLElement | null
-  if (!target?.closest('[data-appointment-picker]')) {
-    appointmentMenuOpen.value = false
-  }
-}
+const clientFilterOptions = computed(() => [
+  { value: '', label: 'Todos los clientes' },
+  ...clientOptions.value.map((c) => ({
+    value: c.id,
+    label: `${c.firstName} ${c.lastName}`,
+  })),
+])
+
+const packageSelectOptions = computed(() => [
+  { value: '', label: 'Selecciona…' },
+  ...packages.value.map((p) => ({
+    value: p.id,
+    label: p.name,
+    description: `${p.sessions} visitas · ${money(p.price)}`,
+  })),
+])
+
+const payMethodOptions = [
+  { value: 'CASH', label: 'Efectivo' },
+  { value: 'CARD', label: 'Tarjeta' },
+  { value: 'TRANSFER', label: 'Transferencia' },
+]
 
 onMounted(() => {
-  document.addEventListener('click', onDocClick)
   void load()
 })
 onUnmounted(() => {
-  document.removeEventListener('click', onDocClick)
   stopQrScan()
 })
 
@@ -205,7 +228,6 @@ async function openCreate() {
   showModal.value = true
   createMode.value = 'appointment'
   selectedAppointmentId.value = ''
-  appointmentMenuOpen.value = false
   sellPackageId.value = ''
   sellClientId.value = ''
   giftAmount.value = 100000
@@ -590,14 +612,14 @@ async function openDetail(row: InvoiceRow) {
           {{ f.label }}
         </button>
       </div>
-      <label class="min-w-[180px] flex-1 text-sm sm:max-w-[220px]">
+      <label class="min-w-[180px] flex-1 text-sm sm:max-w-[240px]">
         <span class="sr-only">Cliente</span>
-        <select v-model="clientFilterId" class="input-field !rounded-xl !py-2.5">
-          <option value="">Todos los clientes</option>
-          <option v-for="c in clientOptions" :key="c.id" :value="c.id">
-            {{ c.firstName }} {{ c.lastName }}
-          </option>
-        </select>
+        <AppSelect
+          v-model="clientFilterId"
+          :options="clientFilterOptions"
+          placeholder="Todos los clientes"
+          button-class="!py-2.5"
+        />
       </label>
       <label class="min-w-[180px] flex-1 text-sm sm:max-w-[240px]">
         <span class="sr-only">Buscar</span>
@@ -719,7 +741,7 @@ async function openDetail(row: InvoiceRow) {
     <div
       v-if="showModal"
       class="fixed inset-0 z-[100] flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
-      @click.self="showModal = false; appointmentMenuOpen = false"
+      @click.self="showModal = false"
     >
       <div class="surface w-full max-w-lg p-6 shadow-lift">
         <h2 class="font-display text-xl font-bold">Nueva factura</h2>
@@ -750,64 +772,15 @@ async function openDetail(row: InvoiceRow) {
         </div>
 
         <!-- Cita -->
-        <div v-if="createMode === 'appointment'" class="mt-5" data-appointment-picker>
+        <div v-if="createMode === 'appointment'" class="mt-5">
           <label class="block text-sm">
             <span class="mb-1.5 block font-medium text-ink">Cita</span>
-            <div class="relative">
-              <button
-                type="button"
-                class="input-field flex w-full items-center justify-between gap-3 text-left"
-                @click.stop="appointmentMenuOpen = !appointmentMenuOpen"
-              >
-                <span
-                  class="min-w-0 flex-1 truncate"
-                  :class="selectedAppointment ? 'text-ink dark:text-mist' : 'text-ink-muted/60'"
-                >
-                  {{
-                    selectedAppointment
-                      ? appointmentLabel(selectedAppointment)
-                      : 'Selecciona una cita…'
-                  }}
-                </span>
-                <ChevronDown
-                  class="h-4 w-4 shrink-0 text-ink-muted transition"
-                  :class="appointmentMenuOpen ? 'rotate-180' : ''"
-                />
-              </button>
-              <div
-                v-if="appointmentMenuOpen"
-                class="absolute left-0 right-0 z-20 mt-2 max-h-64 overflow-auto rounded-2xl border border-black/10 bg-white py-1.5 shadow-lift dark:border-white/10 dark:bg-ink-soft"
-              >
-                <p v-if="!appointments.length" class="px-4 py-3 text-sm text-ink-muted">
-                  No hay citas disponibles.
-                </p>
-                <button
-                  v-for="a in appointments"
-                  :key="a.id"
-                  type="button"
-                  class="flex w-full items-start gap-2 px-4 py-2.5 text-left text-sm transition hover:bg-brand-50 dark:hover:bg-brand-950/40"
-                  :class="
-                    selectedAppointmentId === a.id
-                      ? 'bg-brand-50 text-brand-900 dark:bg-brand-950/50 dark:text-brand-200'
-                      : 'text-ink dark:text-mist'
-                  "
-                  @click="pickAppointment(a.id)"
-                >
-                  <Check
-                    class="mt-0.5 h-4 w-4 shrink-0"
-                    :class="selectedAppointmentId === a.id ? 'opacity-100' : 'opacity-0'"
-                  />
-                  <span class="min-w-0">
-                    <span class="block font-medium">
-                      {{ a.client.firstName }} {{ a.client.lastName }} · {{ a.service.name }}
-                    </span>
-                    <span class="mt-0.5 block text-xs text-ink-muted">
-                      {{ new Date(a.startAt).toLocaleString('es-CO') }} · {{ money(a.price) }}
-                    </span>
-                  </span>
-                </button>
-              </div>
-            </div>
+            <AppSelect
+              v-model="selectedAppointmentId"
+              :options="appointmentSelectOptions"
+              placeholder="Selecciona una cita…"
+              button-class="!py-3"
+            />
           </label>
         </div>
 
@@ -815,21 +788,21 @@ async function openDetail(row: InvoiceRow) {
         <div v-else-if="createMode === 'package'" class="mt-5 space-y-3">
           <label class="block text-sm">
             <span class="mb-1.5 block font-medium text-ink">Paquete</span>
-            <select v-model="sellPackageId" class="input-field !rounded-xl !py-3">
-              <option value="">Selecciona…</option>
-              <option v-for="p in packages" :key="p.id" :value="p.id">
-                {{ p.name }} ({{ p.sessions }} · {{ money(p.price) }})
-              </option>
-            </select>
+            <AppSelect
+              v-model="sellPackageId"
+              :options="packageSelectOptions"
+              placeholder="Selecciona…"
+              button-class="!py-3"
+            />
           </label>
           <label class="block text-sm">
             <span class="mb-1.5 block font-medium text-ink">Cliente</span>
-            <select v-model="sellClientId" class="input-field !rounded-xl !py-3">
-              <option value="">Selecciona…</option>
-              <option v-for="c in clients" :key="c.id" :value="c.id">
-                {{ c.firstName }} {{ c.lastName }}
-              </option>
-            </select>
+            <AppSelect
+              v-model="sellClientId"
+              :options="clientRequiredOptions"
+              placeholder="Selecciona…"
+              button-class="!py-3"
+            />
           </label>
         </div>
 
@@ -855,12 +828,12 @@ async function openDetail(row: InvoiceRow) {
           </label>
           <label class="block text-sm">
             <span class="mb-1.5 block font-medium text-ink">Cliente (opcional)</span>
-            <select v-model="giftClientId" class="input-field !rounded-xl !py-3">
-              <option value="">Sin asignar</option>
-              <option v-for="c in clients" :key="c.id" :value="c.id">
-                {{ c.firstName }} {{ c.lastName }}
-              </option>
-            </select>
+            <AppSelect
+              v-model="giftClientId"
+              :options="clientSelectOptions"
+              placeholder="Sin asignar"
+              button-class="!py-3"
+            />
           </label>
         </div>
 
@@ -868,7 +841,7 @@ async function openDetail(row: InvoiceRow) {
           <button
             type="button"
             class="btn-ghost"
-            @click="showModal = false; appointmentMenuOpen = false"
+            @click="showModal = false"
           >
             Cerrar
           </button>
@@ -909,11 +882,11 @@ async function openDetail(row: InvoiceRow) {
 
         <label class="mt-5 block text-sm">
           <span class="mb-1.5 block font-medium text-ink">Método (saldo restante)</span>
-          <select v-model="payMethod" class="input-field !rounded-xl !py-3">
-            <option value="CASH">Efectivo</option>
-            <option value="CARD">Tarjeta</option>
-            <option value="TRANSFER">Transferencia</option>
-          </select>
+          <AppSelect
+            v-model="payMethod"
+            :options="payMethodOptions"
+            button-class="!py-3"
+          />
         </label>
 
         <label class="mt-3 block text-sm">

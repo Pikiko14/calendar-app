@@ -42,6 +42,9 @@ type ConvoContext = {
   workers?: string[];
   slots?: string[];
   appointmentIds?: string[];
+  /** Reseña: estrellas ya elegidas, esperando comentario */
+  pendingRating?: number;
+  awaitingReviewComment?: boolean;
 };
 
 @Injectable()
@@ -1409,8 +1412,50 @@ export class WhatsappService {
     );
   }
 
-  private async handleReview(tenantId: string, clientId: string, convoId: string, ctx: ConvoContext, text: string) {
-    const rating = Number(text.replace(/[^1-5]/g, '').slice(0, 1));
+  private async handleReview(
+    tenantId: string,
+    clientId: string,
+    convoId: string,
+    ctx: ConvoContext,
+    text: string,
+  ) {
+    const raw = (text || '').trim();
+    const skipComment = /^(0|no|n|omitir|skip|-)$/i.test(raw);
+
+    // Paso 2: ya hay estrellas → guardar comentario (o omitir)
+    if (ctx.awaitingReviewComment && ctx.pendingRating && ctx.appointmentId) {
+      const comment = skipComment ? null : raw;
+      try {
+        await this.reviews.createFromAppointment(
+          tenantId,
+          ctx.appointmentId,
+          clientId,
+          ctx.pendingRating,
+          comment,
+        );
+        return this.setState(
+          convoId,
+          WhatsAppConversationState.MENU,
+          {},
+          comment
+            ? '¡Gracias por tu reseña y tu comentario! ⭐'
+            : '¡Gracias por tu reseña! ⭐',
+          menuActions(),
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'No se pudo guardar la reseña.';
+        return this.setState(
+          convoId,
+          WhatsAppConversationState.MENU,
+          {},
+          msg,
+          menuActions(),
+        );
+      }
+    }
+
+    // Paso 1: pedir estrellas (acepta "5" o "5 excelente servicio")
+    const rating = Number(raw.replace(/[^1-5]/g, '').slice(0, 1));
     if (!rating || !ctx.appointmentId) {
       return this.setState(
         convoId,
@@ -1422,31 +1467,56 @@ export class WhatsappService {
         }),
       );
     }
-    try {
-      await this.reviews.createFromAppointment(
-        tenantId,
-        ctx.appointmentId,
-        clientId,
-        rating,
-        text,
-      );
-      return this.setState(
-        convoId,
-        WhatsAppConversationState.MENU,
-        {},
-        '¡Gracias por tu reseña! ⭐',
-        menuActions(),
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'No se pudo guardar la reseña.';
-      return this.setState(
-        convoId,
-        WhatsAppConversationState.MENU,
-        {},
-        msg,
-        menuActions(),
-      );
+
+    const inlineComment = raw
+      .replace(/[1-5]/, '')
+      .replace(/⭐/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (inlineComment.length >= 3) {
+      try {
+        await this.reviews.createFromAppointment(
+          tenantId,
+          ctx.appointmentId,
+          clientId,
+          rating,
+          inlineComment,
+        );
+        return this.setState(
+          convoId,
+          WhatsAppConversationState.MENU,
+          {},
+          '¡Gracias por tu reseña y tu comentario! ⭐',
+          menuActions(),
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'No se pudo guardar la reseña.';
+        return this.setState(
+          convoId,
+          WhatsAppConversationState.MENU,
+          {},
+          msg,
+          menuActions(),
+        );
+      }
     }
+
+    return this.setState(
+      convoId,
+      WhatsAppConversationState.REVIEW,
+      {
+        ...ctx,
+        pendingRating: rating,
+        awaitingReviewComment: true,
+      },
+      [
+        `¡Gracias! Guardamos ${'⭐'.repeat(rating)}.`,
+        '',
+        '¿Quieres agregar un comentario? (opcional)',
+        'Escríbelo ahora, o responde *0* para omitir.',
+      ].join('\n'),
+    );
   }
 
   private async handleAi(tenantId: string, convoId: string, text: string) {
@@ -1564,6 +1634,8 @@ export class WhatsappService {
       '3 ⭐⭐⭐',
       '4 ⭐⭐⭐⭐',
       '5 ⭐⭐⭐⭐⭐',
+      '',
+      'Después podrás agregar un comentario opcional.',
     ].join('\n');
   }
 

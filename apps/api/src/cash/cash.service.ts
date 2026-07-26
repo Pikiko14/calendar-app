@@ -3,8 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DayOfWeek, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { bogotaDayRange } from '../common/bogota-day';
+import { dayEnumFromIndex, toMinutes } from '../common/schedule.util';
+
+/** Minutos antes del cierre del negocio para pedir cerrar caja. */
+const CLOSE_WARN_MINUTES = 30;
 
 @Injectable()
 export class CashService {
@@ -27,9 +32,106 @@ export class CashService {
     });
   }
 
+  /**
+   * Estado operativo de caja + horario de la sede principal (Bogotá).
+   * Sirve para pedir apertura al entrar y cierre cerca del cierre del local.
+   */
+  async status(tenantId: string) {
+    const { dayStart, dayEnd } = bogotaDayRange();
+    const now = new Date();
+
+    const [open, openedToday, branch] = await Promise.all([
+      this.current(tenantId),
+      this.prisma.cashRegister.findFirst({
+        where: {
+          tenantId,
+          openedAt: { gte: dayStart, lte: dayEnd },
+        },
+        orderBy: { openedAt: 'desc' },
+      }),
+      this.prisma.branch.findFirst({
+        where: { tenantId, deletedAt: null, isMain: true },
+        include: {
+          schedules: {
+            include: { blocks: { orderBy: { sortOrder: 'asc' } } },
+          },
+        },
+      }),
+    ]);
+
+    // Día civil Bogotá (UTC-5)
+    const bogotaShifted = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+    const dayKey = dayEnumFromIndex(bogotaShifted.getUTCDay()) as DayOfWeek;
+
+    const schedule =
+      branch?.schedules?.find((s) => s.dayOfWeek === dayKey) || null;
+    const blocks = schedule?.isClosed ? [] : schedule?.blocks || [];
+    const businessOpenToday = blocks.length > 0;
+
+    let openingTime: string | null = null;
+    let closingTime: string | null = null;
+    let closingAt: Date | null = null;
+    let minutesUntilClose: number | null = null;
+
+    if (businessOpenToday) {
+      let minStart = Infinity;
+      let maxEnd = -Infinity;
+      for (const b of blocks) {
+        minStart = Math.min(minStart, toMinutes(b.startTime));
+        maxEnd = Math.max(maxEnd, toMinutes(b.endTime));
+      }
+      const pad = (n: number) => String(n).padStart(2, '0');
+      openingTime = `${pad(Math.floor(minStart / 60))}:${pad(minStart % 60)}`;
+      closingTime = `${pad(Math.floor(maxEnd / 60))}:${pad(maxEnd % 60)}`;
+
+      const y = bogotaShifted.getUTCFullYear();
+      const m = bogotaShifted.getUTCMonth();
+      const d = bogotaShifted.getUTCDate();
+      // cierre Bogotá → UTC (+5h)
+      closingAt = new Date(
+        Date.UTC(y, m, d, Math.floor(maxEnd / 60) + 5, maxEnd % 60, 0, 0),
+      );
+      minutesUntilClose = Math.round(
+        (closingAt.getTime() - now.getTime()) / 60000,
+      );
+    }
+
+    const alreadyClosedToday = Boolean(openedToday?.closedAt);
+    const isOpen = Boolean(open && !open.closedAt);
+
+    // Pedir abrir: no hay caja abierta, el local abre hoy y aún no se cerró el día
+    const needsOpen = !isOpen && businessOpenToday && !alreadyClosedToday;
+
+    // Pedir cerrar: hay caja abierta y faltan ≤30 min (o ya pasó el cierre)
+    const needsClose =
+      isOpen &&
+      minutesUntilClose != null &&
+      minutesUntilClose <= CLOSE_WARN_MINUTES;
+
+    return {
+      register: open,
+      isOpen,
+      businessOpenToday,
+      alreadyClosedToday,
+      openingTime,
+      closingTime,
+      closingAt,
+      minutesUntilClose,
+      closeWarnMinutes: CLOSE_WARN_MINUTES,
+      needsOpen,
+      needsClose,
+      branch: branch ? { id: branch.id, name: branch.name } : null,
+    };
+  }
+
   async open(
     tenantId: string,
-    dto: { openingFloat?: number; branchId?: string; notes?: string; openedById?: string },
+    dto: {
+      openingFloat?: number;
+      branchId?: string;
+      notes?: string;
+      openedById?: string;
+    },
   ) {
     const open = await this.current(tenantId);
     if (open) {
@@ -46,7 +148,11 @@ export class CashService {
     });
   }
 
-  async close(tenantId: string, id: string, dto: { closingCash: number; notes?: string }) {
+  async close(
+    tenantId: string,
+    id: string,
+    dto: { closingCash: number; notes?: string },
+  ) {
     const reg = await this.prisma.cashRegister.findFirst({
       where: { id, tenantId, closedAt: null },
     });
@@ -58,6 +164,7 @@ export class CashService {
         status: 'PAID',
         paidAt: { gte: reg.openedAt },
         method: { in: ['CASH', 'CARD', 'TRANSFER', 'OTHER'] },
+        invoiceId: { not: null },
       },
       _sum: { amount: true },
     });
@@ -75,27 +182,28 @@ export class CashService {
       Number(sales._sum.amount || 0) -
       Number(expenses._sum.amount || 0);
 
-    return this.prisma.cashRegister.update({
-      where: { id },
-      data: {
-        closedAt: new Date(),
-        closingCash: dto.closingCash,
-        notes: dto.notes
-          ? `${reg.notes || ''}\nCierre: ${dto.notes}`.trim()
-          : reg.notes,
-      },
-      // return summary in response via wrapper
-    }).then((closed) => ({
-      ...closed,
-      summary: {
-        openingFloat: Number(reg.openingFloat),
-        sales: Number(sales._sum.amount || 0),
-        expenses: Number(expenses._sum.amount || 0),
-        expected,
-        closingCash: Number(dto.closingCash),
-        difference: Number(dto.closingCash) - expected,
-      },
-    }));
+    return this.prisma.cashRegister
+      .update({
+        where: { id },
+        data: {
+          closedAt: new Date(),
+          closingCash: dto.closingCash,
+          notes: dto.notes
+            ? `${reg.notes || ''}\nCierre: ${dto.notes}`.trim()
+            : reg.notes,
+        },
+      })
+      .then((closed) => ({
+        ...closed,
+        summary: {
+          openingFloat: Number(reg.openingFloat),
+          sales: Number(sales._sum.amount || 0),
+          expenses: Number(expenses._sum.amount || 0),
+          expected,
+          closingCash: Number(dto.closingCash),
+          difference: Number(dto.closingCash) - expected,
+        },
+      }));
   }
 
   listExpenses(tenantId: string) {
@@ -108,7 +216,12 @@ export class CashService {
 
   createExpense(
     tenantId: string,
-    dto: { category: string; amount: number; description?: string; date?: string },
+    dto: {
+      category: string;
+      amount: number;
+      description?: string;
+      date?: string;
+    },
   ) {
     return this.prisma.expense.create({
       data: {

@@ -18,11 +18,7 @@ export class ReportsController {
     @Query('from') from: string,
     @Query('to') to: string,
   ) {
-    const fromDate = from
-      ? new Date(from)
-      : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const toDate = to ? new Date(to) : new Date();
-    return this.reports.overview(tenantId, fromDate, toDate);
+    return this.reports.overview(tenantId, from, to);
   }
 
   @Get('revenue')
@@ -31,7 +27,7 @@ export class ReportsController {
     @Query('from') from: string,
     @Query('to') to: string,
   ) {
-    return this.reports.revenue(tenantId, new Date(from), new Date(to));
+    return this.reports.paidSales(tenantId, from, to);
   }
 
   @Get('revenue.csv')
@@ -41,7 +37,7 @@ export class ReportsController {
     @Query('to') to: string,
     @Res() res: Response,
   ) {
-    const body = await this.reports.csv(tenantId, new Date(from), new Date(to));
+    const body = await this.reports.csv(tenantId, from, to);
     res.type('text/csv').send(body);
   }
 }

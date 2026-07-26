@@ -35,6 +35,12 @@ export class ReviewsService {
       throw new ConflictException('Esta cita ya tiene una reseña.');
     }
 
+    const cleaned = comment?.trim() || null;
+    const junk =
+      !cleaned ||
+      /^[1-5]$/.test(cleaned) ||
+      /^⭐+$/.test(cleaned);
+
     const review = await this.prisma.review.create({
       data: {
         tenantId,
@@ -42,7 +48,7 @@ export class ReviewsService {
         appointmentId,
         clientId,
         rating,
-        comment: comment?.trim() || null,
+        comment: junk ? null : cleaned,
       },
     });
 
@@ -107,7 +113,7 @@ export class ReviewsService {
     return { workersUpdated: workerIds.length, orphansChecked: orphan.length };
   }
 
-  listPublic(tenantId: string, take = 12) {
+  listPublic(tenantId: string, take = 40) {
     return this.prisma.review.findMany({
       where: { tenantId },
       select: {

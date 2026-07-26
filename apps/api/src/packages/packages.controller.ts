@@ -67,6 +67,11 @@ export class PackagesController {
     return this.packages.consume(tenantId, id);
   }
 
+  @Post('purchases/:id/restore')
+  restore(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.packages.restore(tenantId, id);
+  }
+
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   toggle(

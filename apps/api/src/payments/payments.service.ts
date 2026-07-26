@@ -37,7 +37,7 @@ export class PaymentsService {
         webhookPath: '/api/v1/payments/epayco/confirmation',
         message: configured
           ? 'ePayco listo para cobrar suscripciones.'
-          : 'Agrega EPAYCO_PUBLIC_KEY, EPAYCO_PRIVATE_KEY, EPAYCO_P_CUST_ID_CLIENTE y EPAYCO_P_KEY.',
+          : 'ePayco pendiente de configuración.',
       };
     }
     if (provider === 'Stripe') {

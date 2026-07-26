@@ -57,20 +57,24 @@ export class PackagesService {
     });
   }
 
-  listClientPackages(tenantId: string, clientId?: string) {
+  listClientPackages(
+    tenantId: string,
+    clientId?: string,
+    opts?: { activeOnly?: boolean },
+  ) {
     return this.prisma.clientPackage.findMany({
       where: {
         tenantId,
         ...(clientId ? { clientId } : {}),
-        isActive: true,
+        ...(opts?.activeOnly ? { isActive: true } : {}),
       },
       include: {
         client: {
           select: { id: true, firstName: true, lastName: true, phone: true },
         },
-        package: true,
+        package: { include: { service: { select: { id: true, name: true } } } },
       },
-      orderBy: { purchasedAt: 'desc' },
+      orderBy: [{ isActive: 'desc' }, { purchasedAt: 'desc' }],
     });
   }
 
@@ -103,7 +107,12 @@ export class PackagesService {
           expiresAt,
           notes: dto.notes,
         },
-        include: { package: true, client: true },
+        include: {
+          package: true,
+          client: {
+            select: { id: true, firstName: true, lastName: true, phone: true },
+          },
+        },
       }),
       this.prisma.payment.create({
         data: {
@@ -126,16 +135,26 @@ export class PackagesService {
     return purchase;
   }
 
+  private purchaseInclude() {
+    return {
+      client: {
+        select: { id: true, firstName: true, lastName: true, phone: true },
+      },
+      package: { include: { service: { select: { id: true, name: true } } } },
+    } as const;
+  }
+
   async consume(tenantId: string, id: string) {
     const row = await this.prisma.clientPackage.findFirst({
-      where: { id, tenantId, isActive: true },
+      where: { id, tenantId },
+      include: this.purchaseInclude(),
     });
-    if (!row) throw new NotFoundException('Membresía no encontrada.');
+    if (!row) throw new NotFoundException('Paquete del cliente no encontrado.');
     if (row.expiresAt && row.expiresAt < new Date()) {
       throw new BadRequestException('Paquete vencido.');
     }
     if (row.usedSessions >= row.totalSessions) {
-      throw new BadRequestException('Sin sesiones disponibles.');
+      throw new BadRequestException('Sin visitas disponibles.');
     }
     const used = row.usedSessions + 1;
     return this.prisma.clientPackage.update({
@@ -144,6 +163,78 @@ export class PackagesService {
         usedSessions: used,
         isActive: used < row.totalSessions,
       },
+      include: this.purchaseInclude(),
     });
+  }
+
+  /** Devuelve una visita (si se descontó por error). */
+  async restore(tenantId: string, id: string) {
+    const row = await this.prisma.clientPackage.findFirst({
+      where: { id, tenantId },
+    });
+    if (!row) throw new NotFoundException('Paquete del cliente no encontrado.');
+    if (row.usedSessions < 1) {
+      throw new BadRequestException('No hay visitas para devolver.');
+    }
+    const used = row.usedSessions - 1;
+    return this.prisma.clientPackage.update({
+      where: { id },
+      data: {
+        usedSessions: used,
+        isActive: true,
+      },
+      include: this.purchaseInclude(),
+    });
+  }
+
+  /**
+   * Descuenta 1 visita del mejor paquete activo del cliente.
+   * Prefiere packs del mismo servicio; luego packs “cualquier servicio”.
+   */
+  async consumeForClient(
+    tenantId: string,
+    clientId: string,
+    serviceId?: string | null,
+  ) {
+    const now = new Date();
+    const eligible = (
+      await this.prisma.clientPackage.findMany({
+        where: {
+          tenantId,
+          clientId,
+          isActive: true,
+        },
+        include: {
+          package: { select: { id: true, name: true, serviceId: true } },
+          client: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+        },
+        orderBy: { purchasedAt: 'asc' },
+      })
+    ).filter(
+      (r) =>
+        r.usedSessions < r.totalSessions &&
+        (!r.expiresAt || r.expiresAt >= now),
+    );
+
+    if (!eligible.length) return null;
+
+    const matchService = serviceId
+      ? eligible.find((r) => r.package.serviceId === serviceId)
+      : undefined;
+    const anyService = eligible.find((r) => !r.package.serviceId);
+    const pick = matchService || anyService || eligible[0];
+
+    const updated = await this.consume(tenantId, pick.id);
+    return {
+      purchaseId: updated.id,
+      packageName: updated.package?.name || pick.package.name,
+      usedSessions: updated.usedSessions,
+      totalSessions: updated.totalSessions,
+      remaining: updated.totalSessions - updated.usedSessions,
+      clientName:
+        `${updated.client?.firstName || ''} ${updated.client?.lastName || ''}`.trim(),
+    };
   }
 }

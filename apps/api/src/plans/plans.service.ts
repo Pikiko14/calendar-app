@@ -427,8 +427,7 @@ export class PlansService implements OnModuleInit {
         test: true,
         demoMode: true,
         configured: false,
-        message:
-          'ePayco aún sin credenciales. Agrega EPAYCO_PUBLIC_KEY, EPAYCO_PRIVATE_KEY, EPAYCO_P_CUST_ID_CLIENTE y EPAYCO_P_KEY. Mientras tanto puedes simular el pago.',
+        message: 'Modo demo: puedes simular el pago.',
       };
     }
 
@@ -474,7 +473,7 @@ export class PlansService implements OnModuleInit {
       test: session.test,
       demoMode: false,
       configured: true,
-      message: 'Abre el checkout ePayco con sessionId + publicKey.',
+      message: 'Abre el checkout ePayco con sessionId.',
     };
   }
 

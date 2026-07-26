@@ -228,10 +228,9 @@ async function selectPlan(planId: string) {
     })
     pendingPaymentId.value = checkout.paymentId
 
-    if (checkout.sessionId && checkout.publicKey && !checkout.demoMode) {
+    if (checkout.sessionId && !checkout.demoMode) {
       const { openEpaycoCheckout } = await import('@/lib/epayco')
       await openEpaycoCheckout({
-        publicKey: checkout.publicKey,
         sessionId: checkout.sessionId,
         test: checkout.test !== false,
       })
@@ -246,8 +245,8 @@ async function selectPlan(planId: string) {
 
     if (checkout.demoMode) {
       const payOk = await confirmAction({
-        title: 'ePayco aún sin credenciales',
-        text: `Agrega las llaves EPAYCO_* en .env. Por ahora puedes simular el cobro de ${formatCop(checkout.amount)}.`,
+        title: 'Activar plan (demo)',
+        text: `Simular cobro de ${formatCop(checkout.amount)} y activar la suscripción.`,
         confirmText: 'Simular pago y activar',
       })
       if (payOk) {
@@ -1160,11 +1159,7 @@ const showSaveBar = computed(() =>
             <div>
               <h2 class="font-display text-xl font-bold">Planes</h2>
               <p class="mt-1 text-sm text-ink-muted">
-                Cobro mensual con <b>ePayco</b>. Sin llaves aún: puedes simular el pago.
-                Agrega <code class="text-xs">EPAYCO_PUBLIC_KEY</code>,
-                <code class="text-xs">EPAYCO_PRIVATE_KEY</code>,
-                <code class="text-xs">EPAYCO_P_CUST_ID_CLIENTE</code> y
-                <code class="text-xs">EPAYCO_P_KEY</code>.
+                Cobro mensual con <b>ePayco</b>.
               </p>
             </div>
             <div

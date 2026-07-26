@@ -8,7 +8,7 @@ describe('AppointmentsService conflict rules', () => {
     $transaction: jest.fn(),
   };
 
-  const service = new AppointmentsService(prisma, {} as any, {} as any);
+  const service = new AppointmentsService(prisma, {} as any, {} as any, {} as any);
 
   it('rechaza fechas inválidas en el cálculo de rango', () => {
     expect(() =>

@@ -452,7 +452,15 @@ async function setStatus(
 
   busyId.value = item.id
   try {
-    await api(`/appointments/${item.id}/status`, {
+    const updated = await api<{
+      id: string
+      packageConsumption?: {
+        packageName: string
+        usedSessions: number
+        totalSessions: number
+        remaining: number
+      } | null
+    }>(`/appointments/${item.id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({
         status: next,
@@ -460,7 +468,13 @@ async function setStatus(
         reason: opts?.reason,
       }),
     })
-    await toastSuccess('Cita actualizada', statusLabel[next] || next)
+    const pack = updated.packageConsumption
+    await toastSuccess(
+      'Cita actualizada',
+      pack
+        ? `${statusLabel[next] || next}. Paquete «${pack.packageName}»: quedan ${pack.remaining} de ${pack.totalSessions}`
+        : statusLabel[next] || next,
+    )
     await load()
   } catch (e) {
     await toastError(

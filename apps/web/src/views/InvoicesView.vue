@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { FileText, Plus, Banknote, XCircle, Printer, MessageCircle, Download } from '@lucide/vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import {
+  FileText,
+  Plus,
+  Banknote,
+  XCircle,
+  Printer,
+  MessageCircle,
+  Download,
+  ChevronDown,
+  Check,
+} from '@lucide/vue'
 import { api, API_ORIGIN } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
 import { printInvoice } from '@/lib/printInvoice'
@@ -53,8 +63,35 @@ const showModal = ref(false)
 const busy = ref(false)
 const appointments = ref<AppointmentOption[]>([])
 const selectedAppointmentId = ref('')
+const appointmentMenuOpen = ref(false)
 const selectedInvoice = ref<InvoiceRow | null>(null)
 const auth = useAuthStore()
+
+const selectedAppointment = computed(() =>
+  appointments.value.find((a) => a.id === selectedAppointmentId.value) || null,
+)
+
+function appointmentLabel(a: AppointmentOption) {
+  return `${new Date(a.startAt).toLocaleString('es-CO')} · ${a.client.firstName} ${a.client.lastName} · ${a.service.name} · ${money(a.price)}`
+}
+
+function pickAppointment(id: string) {
+  selectedAppointmentId.value = id
+  appointmentMenuOpen.value = false
+}
+
+function onDocClick(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  if (!target?.closest('[data-appointment-picker]')) {
+    appointmentMenuOpen.value = false
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  void load()
+})
+onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 function money(value: string | number | undefined | null) {
   const n = Number(value || 0)
@@ -105,6 +142,7 @@ async function load() {
 async function openCreate() {
   showModal.value = true
   selectedAppointmentId.value = ''
+  appointmentMenuOpen.value = false
   try {
     const list = await api<AppointmentOption[]>('/appointments')
     const sorted = [...(Array.isArray(list) ? list : [])].sort(
@@ -229,7 +267,6 @@ async function openDetail(row: InvoiceRow) {
   }
 }
 
-onMounted(load)
 </script>
 
 <template>
@@ -392,27 +429,76 @@ onMounted(load)
     <div
       v-if="showModal"
       class="fixed inset-0 z-[100] flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
-      @click.self="showModal = false"
+      @click.self="showModal = false; appointmentMenuOpen = false"
     >
       <div class="surface w-full max-w-lg p-6 shadow-lift">
         <h2 class="font-display text-xl font-bold">Facturar cita</h2>
         <p class="mt-1 text-sm text-ink-muted">
           Se genera el número automáticamente y se toma el precio de la cita.
         </p>
-        <label class="mt-5 block text-sm text-ink-muted">
-          Cita
-          <select v-model="selectedAppointmentId" class="input-field mt-2">
-            <option value="">Selecciona una cita…</option>
-            <option v-for="a in appointments" :key="a.id" :value="a.id">
-              {{ new Date(a.startAt).toLocaleString('es-CO') }}
-              · {{ a.client.firstName }} {{ a.client.lastName }}
-              · {{ a.service.name }}
-              · {{ money(a.price) }}
-            </option>
-          </select>
-        </label>
+        <div class="mt-5" data-appointment-picker>
+          <p class="text-sm text-ink-muted">Cita</p>
+          <div class="relative mt-2">
+            <button
+              type="button"
+              class="input-field flex w-full items-center justify-between gap-3 text-left"
+              @click.stop="appointmentMenuOpen = !appointmentMenuOpen"
+            >
+              <span
+                class="min-w-0 flex-1 truncate"
+                :class="selectedAppointment ? 'text-ink dark:text-mist' : 'text-ink-muted/60'"
+              >
+                {{
+                  selectedAppointment
+                    ? appointmentLabel(selectedAppointment)
+                    : 'Selecciona una cita…'
+                }}
+              </span>
+              <ChevronDown
+                class="h-4 w-4 shrink-0 text-ink-muted transition"
+                :class="appointmentMenuOpen ? 'rotate-180' : ''"
+              />
+            </button>
+            <div
+              v-if="appointmentMenuOpen"
+              class="absolute left-0 right-0 z-20 mt-2 max-h-64 overflow-auto rounded-2xl border border-black/10 bg-white py-1.5 shadow-lift dark:border-white/10 dark:bg-ink-soft"
+            >
+              <p
+                v-if="!appointments.length"
+                class="px-4 py-3 text-sm text-ink-muted"
+              >
+                No hay citas disponibles.
+              </p>
+              <button
+                v-for="a in appointments"
+                :key="a.id"
+                type="button"
+                class="flex w-full items-start gap-2 px-4 py-2.5 text-left text-sm transition hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                :class="
+                  selectedAppointmentId === a.id
+                    ? 'bg-brand-50 text-brand-900 dark:bg-brand-950/50 dark:text-brand-200'
+                    : 'text-ink dark:text-mist'
+                "
+                @click="pickAppointment(a.id)"
+              >
+                <Check
+                  class="mt-0.5 h-4 w-4 shrink-0"
+                  :class="selectedAppointmentId === a.id ? 'opacity-100' : 'opacity-0'"
+                />
+                <span class="min-w-0">
+                  <span class="block font-medium">
+                    {{ a.client.firstName }} {{ a.client.lastName }} · {{ a.service.name }}
+                  </span>
+                  <span class="mt-0.5 block text-xs text-ink-muted">
+                    {{ new Date(a.startAt).toLocaleString('es-CO') }} · {{ money(a.price) }}
+                  </span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
         <div class="mt-6 flex justify-end gap-2">
-          <button type="button" class="btn-ghost" @click="showModal = false">Cerrar</button>
+          <button type="button" class="btn-ghost" @click="showModal = false; appointmentMenuOpen = false">Cerrar</button>
           <button
             type="button"
             class="btn-primary"

@@ -15,6 +15,7 @@ import utc from 'dayjs/plugin/utc';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ClientsService } from '../clients/clients.service';
+import { PackagesService } from '../packages/packages.service';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import {
   blockCoversRange,
@@ -53,6 +54,7 @@ export class AppointmentsService {
     @Inject(forwardRef(() => NotificationsService))
     private readonly notifications: NotificationsService,
     private readonly clients: ClientsService,
+    private readonly packages: PackagesService,
   ) {}
 
   private range(
@@ -441,7 +443,7 @@ export class AppointmentsService {
     await this.assertWorkerOwnsAppointment(tenantId, id, user);
     const current = await this.prisma.appointment.findFirst({
       where: { id, tenantId, deletedAt: null },
-      select: { clientId: true, status: true, version: true },
+      select: { clientId: true, status: true, version: true, serviceId: true },
     });
     if (!current) {
       throw new ConflictException(
@@ -486,7 +488,20 @@ export class AppointmentsService {
       current.status !== AppointmentStatus.COMPLETED &&
       dto.status === AppointmentStatus.COMPLETED;
 
+    let packageConsumption: Awaited<
+      ReturnType<PackagesService['consumeForClient']>
+    > = null;
+
     if (becameCompleted) {
+      packageConsumption = await this.packages
+        .consumeForClient(tenantId, current.clientId, current.serviceId)
+        .catch((e) => {
+          this.logger.warn(
+            `No se pudo descontar visita de paquete: ${e instanceof Error ? e.message : e}`,
+          );
+          return null;
+        });
+
       void this.notifications
         .sendReviewRequest(tenantId, id)
         .catch((e) =>
@@ -511,7 +526,10 @@ export class AppointmentsService {
         );
     }
 
-    return this.prisma.appointment.findUnique({ where: { id } });
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id },
+    });
+    return { ...appointment, packageConsumption };
   }
 
   async reschedule(tenantId: string, id: string, dto: RescheduleDto) {

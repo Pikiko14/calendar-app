@@ -137,7 +137,7 @@ export class EpaycoService {
     const privateKey = this.privateKey();
     if (!publicKey || !privateKey) {
       throw new ServiceUnavailableException(
-        'Faltan EPAYCO_PUBLIC_KEY / EPAYCO_PRIVATE_KEY.',
+        'ePayco no está configurado (faltan llaves pública/privada).',
       );
     }
     const basic = Buffer.from(`${publicKey}:${privateKey}`).toString('base64');
@@ -171,21 +171,22 @@ export class EpaycoService {
   async createCheckoutSession(input: EpaycoCheckoutInput) {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException(
-        'ePayco no está configurado. Agrega EPAYCO_PUBLIC_KEY, EPAYCO_PRIVATE_KEY, EPAYCO_P_CUST_ID_CLIENTE y EPAYCO_P_KEY.',
+        'ePayco no está configurado.',
       );
     }
 
     const token = await this.login();
     const amount = Math.round(Number(input.amount));
     const body = {
+      checkout_version: '2',
       name: `BeautyBook — ${input.planName}`,
       description:
         input.planDescription ||
         `Suscripción mensual plan ${input.planCode}`,
       invoice: input.invoice,
       currency: (input.currency || 'COP').toUpperCase(),
-      amount,
-      taxBase: amount,
+      amount: Number(amount),
+      taxBase: 0,
       tax: 0,
       taxIco: 0,
       country: 'CO',
@@ -198,12 +199,11 @@ export class EpaycoService {
         name: input.tenantName,
       },
       extras: {
-        extra1: input.paymentId,
-        extra2: input.tenantId,
-        extra3: input.planId,
+        extra1: String(input.paymentId),
+        extra2: String(input.tenantId),
+        extra3: String(input.planId),
       },
       test: this.isTestMode(),
-      checkout_version: '2',
     };
 
     const res = await fetch('https://apify.epayco.co/payment/session/create', {

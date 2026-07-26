@@ -30,6 +30,7 @@ import { CashModule } from './cash/cash.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
 import { MarketingModule } from './marketing/marketing.module';
 import { PackagesModule } from './packages/packages.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { PackagesModule } from './packages/packages.module';
       envFilePath: ['.env', '../../.env'],
     }),
     PrismaModule,
+    StorageModule,
     AuthModule,
     TenantsModule,
     BranchesModule,

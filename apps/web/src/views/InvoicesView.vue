@@ -616,7 +616,13 @@ async function openDetail(row: InvoiceRow) {
     <div v-else-if="!filtered.length" class="surface px-6 py-14 text-center">
       <FileText class="mx-auto h-10 w-10 text-ink-muted/40" />
       <p class="mt-3 font-display text-lg font-bold">Sin facturas</p>
-      <p class="mt-1 text-sm text-ink-muted">Genera la primera desde una cita completada o confirmada.</p>
+      <p class="mt-1 text-sm text-ink-muted">
+        {{
+          clientFilterId || clientSearch.trim() || filter !== 'ALL'
+            ? 'Ninguna factura coincide con el filtro.'
+            : 'Genera la primera desde una cita, paquete o gift card.'
+        }}
+      </p>
     </div>
 
     <div v-else class="overflow-hidden rounded-2xl border border-black/5 dark:border-white/10">

@@ -941,6 +941,8 @@ model GiftCard {
   code      String
   balance   Decimal   @db.Decimal(12, 2)
   initial   Decimal   @db.Decimal(12, 2)
+  /** URL pública de la imagen/QR (S3 u /uploads) */
+  imageUrl  String?
   expiresAt DateTime?
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())

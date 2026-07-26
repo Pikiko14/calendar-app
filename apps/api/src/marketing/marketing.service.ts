@@ -5,9 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { StorageService } from '../storage/storage.service';
+
+const GIFT_CARD_QR_PREFIX = 'BBGC:';
 
 @Injectable()
 export class MarketingService {
@@ -17,6 +21,7 @@ export class MarketingService {
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
     private readonly notifications: NotificationsService,
+    private readonly storage: StorageService,
   ) {}
 
   listCoupons(tenantId: string) {
@@ -103,6 +108,34 @@ export class MarketingService {
         },
       })
       .then(async (gift) => {
+        let imageUrl: string | null = null;
+        try {
+          const png = await QRCode.toBuffer(`${GIFT_CARD_QR_PREFIX}${gift.code}`, {
+            type: 'png',
+            width: 512,
+            margin: 2,
+            errorCorrectionLevel: 'M',
+          });
+          const uploaded = await this.storage.uploadBuffer({
+            buffer: png,
+            mimeType: 'image/png',
+            folder: 'gift-cards',
+            tenantId,
+            filename: `${gift.code.replace(/[^A-Z0-9_-]/gi, '')}.png`,
+          });
+          imageUrl = uploaded.url;
+          await this.prisma.giftCard.update({
+            where: { id: gift.id },
+            data: { imageUrl },
+          });
+        } catch (e) {
+          this.logger.warn(
+            `No se pudo guardar imagen gift card ${gift.code}: ${
+              e instanceof Error ? e.message : e
+            }`,
+          );
+        }
+
         const amount = Number(dto.amount);
         const { invoice, payment } = await this.invoices.issuePaidSale(
           tenantId,
@@ -116,6 +149,7 @@ export class MarketingService {
               giftCardId: gift.id,
               code: gift.code,
               clientId: dto.clientId || null,
+              imageUrl,
             },
           },
         );
@@ -138,6 +172,7 @@ export class MarketingService {
 
         return {
           ...gift,
+          imageUrl,
           invoice: {
             id: invoice.id,
             number: invoice.number,

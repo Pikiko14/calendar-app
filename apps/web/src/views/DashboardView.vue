@@ -45,6 +45,8 @@ type Metrics = {
   today: number
   completedToday: number
   revenue: number
+  /** Facturas PAID del día (Bogotá) */
+  paidInvoicesToday: number
   cancelled: number
   noShows: number
   weekly: { labels: string[]; data: number[] }
@@ -142,10 +144,11 @@ const stats = computed(() => [
       currency: 'COP',
       maximumFractionDigits: 0,
     }),
-    hint:
-      metrics.value?.paidInvoicesToday != null
-        ? `${metrics.value.paidInvoicesToday} factura${metrics.value.paidInvoicesToday === 1 ? '' : 's'} pagada${metrics.value.paidInvoicesToday === 1 ? '' : 's'}`
-        : 'Facturas pagadas',
+    hint: (() => {
+      const n = Number(metrics.value?.paidInvoicesToday ?? 0)
+      if (!metrics.value || Number.isNaN(n)) return 'Facturas pagadas'
+      return `${n} factura${n === 1 ? '' : 's'} pagada${n === 1 ? '' : 's'}`
+    })(),
     icon: Wallet,
     tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   },

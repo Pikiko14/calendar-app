@@ -1068,7 +1068,7 @@ onMounted(load)
                   <p class="mt-1 font-display text-2xl font-bold">{{ money(g.balance) }}</p>
                   <p class="text-xs text-white/70">de {{ money(g.initial) }}</p>
                 </div>
-                <GiftCardQr :code="g.code" :size="88" light />
+                <GiftCardQr :code="g.code" :image-url="g.imageUrl" :size="88" light />
               </div>
               <p v-if="g.client" class="mt-3 text-sm">
                 Para {{ g.client.firstName }} {{ g.client.lastName }}
@@ -1191,7 +1191,12 @@ onMounted(load)
                 <p class="text-[10px] uppercase tracking-[0.2em] text-white/60">Código</p>
                 <p class="font-mono text-xl tracking-widest">{{ giftPreview.code }}</p>
               </div>
-              <GiftCardQr :code="giftPreview.code" :size="100" light />
+              <GiftCardQr
+                :code="giftPreview.code"
+                :image-url="giftPreview.imageUrl"
+                :size="100"
+                light
+              />
             </div>
           </div>
         </div>

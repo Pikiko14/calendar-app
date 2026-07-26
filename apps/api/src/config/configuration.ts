@@ -40,4 +40,13 @@ export default () => ({
       inboundDebounceMs: Number(process.env.WHATSAPP_INBOUND_DEBOUNCE_MS ?? 900),
     },
   },
+  storage: {
+    bucket: process.env.AWS_S3_BUCKET ?? '',
+    region: process.env.AWS_REGION ?? 'us-east-1',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
+    /** CDN o URL pública del bucket (opcional). Ej: https://mi-bucket.s3.amazonaws.com */
+    publicUrl: process.env.AWS_S3_PUBLIC_URL ?? '',
+    localDir: process.env.UPLOAD_DIR ?? './uploads',
+  },
 });

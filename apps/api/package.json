@@ -36,6 +36,7 @@
     "@nestjs/swagger": "^11.4.5",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.1.28",
+    "@aws-sdk/client-s3": "^3.850.0",
     "@prisma/client": "6.19.3",
     "@whiskeysockets/baileys": "^6.7.21",
     "bcrypt": "^6.0.0",

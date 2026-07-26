@@ -100,6 +100,7 @@ type ManagementFormValues = {
   price: number | undefined
   description: string
   phone: string
+  documentNumber: string
   email: string
   password: string
   isActive: boolean
@@ -121,6 +122,7 @@ const { handleSubmit, resetForm, values, setFieldValue } = useForm<ManagementFor
     price: 0,
     description: '',
     phone: '',
+    documentNumber: '',
     email: '',
     password: '',
     isActive: true,
@@ -151,6 +153,7 @@ function openCreate() {
       price: undefined,
       description: '',
       phone: '',
+      documentNumber: '',
       email: '',
       password: '',
       isActive: true,
@@ -171,6 +174,7 @@ function openEditService(row: ServiceRow) {
       firstName: '',
       lastName: '',
       phone: '',
+      documentNumber: '',
       email: '',
       password: '',
     },
@@ -191,6 +195,7 @@ function openEditWorker(row: WorkerRow) {
       firstName: row.firstName,
       lastName: row.lastName,
       phone: row.phone || '',
+      documentNumber: '',
       isActive: row.isActive,
       name: '',
       durationMinutes: 30,
@@ -309,6 +314,7 @@ const onSubmit = handleSubmit(async (form) => {
         body: JSON.stringify({
           firstName: firstName || fullName,
           lastName: rest.join(' ') || '—',
+          documentNumber: String(form.documentNumber || '').replace(/\D/g, ''),
           phone: form.phone || undefined,
           email: form.email || undefined,
         }),
@@ -443,6 +449,7 @@ onMounted(load)
             <h1 class="font-display text-3xl font-bold">{{ detail.firstName }} {{ detail.lastName }}</h1>
             <p class="text-ink-muted">
               {{ detail.email || 'Sin email' }} · {{ detail.phone || 'Sin teléfono' }}
+              <template v-if="detail.documentNumber"> · Doc. {{ detail.documentNumber }}</template>
             </p>
           </div>
         </div>
@@ -682,6 +689,9 @@ onMounted(load)
                 <template v-else>
                   <td class="max-w-[240px] px-5 py-4">
                     <b class="block truncate">{{ row.firstName }} {{ row.lastName }}</b>
+                    <span v-if="row.documentNumber" class="block truncate text-xs text-ink-muted">
+                      Doc. {{ row.documentNumber }}
+                    </span>
                   </td>
                   <td class="max-w-[220px] px-5 py-4">
                     <span class="block truncate text-ink-muted">{{ row.email || row.phone || '—' }}</span>
@@ -823,6 +833,11 @@ onMounted(load)
 
           <div v-else class="mt-5 space-y-4">
             <FormField name="name" label="Nombre completo" placeholder="Nombre y apellido" />
+            <FormField
+              name="documentNumber"
+              label="Número de documento"
+              placeholder="Cédula"
+            />
             <FormField name="phone" label="Teléfono / WhatsApp" type="tel" />
             <FormField name="email" label="Email" type="email" placeholder="opcional@correo.com" />
           </div>

@@ -65,6 +65,7 @@ const workerId = ref('')
 const autoWorker = ref(true)
 const date = ref('')
 const startAt = ref('')
+const documentNumber = ref('')
 const firstName = ref('')
 const lastName = ref('')
 const phone = ref('')
@@ -92,7 +93,13 @@ const canNext = computed(() => {
   if (step.value === 2) return autoWorker.value || Boolean(workerId.value)
   if (step.value === 3) return Boolean(date.value)
   if (step.value === 4) return Boolean(startAt.value)
-  if (step.value === 5) return firstName.value && lastName.value && phone.value.length >= 8
+  if (step.value === 5)
+    return (
+      firstName.value &&
+      lastName.value &&
+      phone.value.length >= 8 &&
+      documentNumber.value.replace(/\D/g, '').length >= 5
+    )
   return false
 })
 
@@ -218,6 +225,7 @@ async function next() {
         firstName: firstName.value,
         lastName: lastName.value,
         phone: phone.value,
+        documentNumber: documentNumber.value.replace(/\D/g, ''),
         serviceId: serviceId.value,
         workerId: wid,
         startAt: startAt.value,
@@ -591,10 +599,19 @@ async function copyCoupon(code: string) {
         <template v-else>
           <h2 class="font-display text-2xl font-bold">Tus datos</h2>
           <div class="mt-4 space-y-3">
+            <input
+              v-model="documentNumber"
+              inputmode="numeric"
+              placeholder="Número de documento (cédula)"
+              class="input-field"
+            />
             <input v-model="firstName" placeholder="Nombre" class="input-field" />
             <input v-model="lastName" placeholder="Apellido" class="input-field" />
             <input v-model="phone" placeholder="WhatsApp / teléfono" class="input-field" />
           </div>
+          <p class="mt-2 text-xs text-ink-muted">
+            Con tu documento te identificamos en próximas reservas.
+          </p>
           <p class="mt-4 text-sm text-ink-muted">
             <span class="truncate" :title="selectedService?.name">{{
               shortName(selectedService?.name || '', 36)

@@ -15,6 +15,7 @@ import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { AiService } from '../ai/ai.service';
+import { ClientsService } from '../clients/clients.service';
 import { PlansService } from '../plans/plans.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewsService } from '../reviews/reviews.service';
@@ -25,6 +26,7 @@ import {
   type BotAction,
   type BotReply,
 } from './whatsapp-bot-ui';
+import { isValidDocument } from '../common/document.util';
 import { normalizePhone, phoneLookupVariants } from '../common/phone.util';
 
 dayjs.extend(customParseFormat);
@@ -59,6 +61,7 @@ export class WhatsappService {
     private readonly config: ConfigService,
     private readonly reviews: ReviewsService,
     private readonly plans: PlansService,
+    private readonly clients: ClientsService,
   ) {}
 
   async assertPlanAllowsWhatsapp(tenantId: string) {
@@ -149,6 +152,14 @@ export class WhatsappService {
           normalized,
           ctx,
           client,
+        );
+      case WhatsAppConversationState.BOOKING_DOCUMENT:
+        return this.handleBookingDocument(
+          tenantId,
+          convo.id,
+          client.id,
+          phoneKey,
+          normalized,
         );
       case WhatsAppConversationState.BOOKING_NAME:
         return this.handleBookingName(
@@ -299,7 +310,7 @@ export class WhatsappService {
     ctx: ConvoContext,
   ) {
     switch (state) {
-      case WhatsAppConversationState.BOOKING_NAME:
+      case WhatsAppConversationState.BOOKING_DOCUMENT:
       case WhatsAppConversationState.BOOKING_SERVICE:
       case WhatsAppConversationState.CANCEL:
       case WhatsAppConversationState.AI_CHAT:
@@ -312,6 +323,15 @@ export class WhatsappService {
           {},
           this.welcome(business),
           menuActions(),
+        );
+
+      case WhatsAppConversationState.BOOKING_NAME:
+        return this.setState(
+          convoId,
+          WhatsAppConversationState.BOOKING_DOCUMENT,
+          {},
+          this.withNav('¿Cuál es tu número de documento (cédula)?'),
+          navActions(),
         );
 
       case WhatsAppConversationState.BOOKING_DATE:
@@ -498,7 +518,7 @@ export class WhatsappService {
   ) {
     switch (text.trim()) {
       case '1':
-        return this.promptBookingName(convoId, client);
+        return this.promptBookingDocument(convoId, client);
       case '2':
         return this.handleConsult(tenantId, clientId, convoId);
       case '3': {
@@ -652,6 +672,93 @@ export class WhatsappService {
     };
   }
 
+  private async promptBookingDocument(
+    convoId: string,
+    client: { firstName: string; lastName: string; documentNumber?: string | null },
+  ) {
+    const current = client.documentNumber
+      ? `\n(Registrado: ${client.documentNumber})`
+      : '';
+    const message = client.documentNumber
+      ? `Para identificarte, confirma tu número de documento o escribe uno nuevo.${current}\nResponde SI para usar el actual.`
+      : 'Para agendar tu cita, ¿cuál es tu número de documento (cédula)?';
+
+    return this.setState(
+      convoId,
+      WhatsAppConversationState.BOOKING_DOCUMENT,
+      {},
+      this.withNav(message),
+      navActions(),
+    );
+  }
+
+  private async handleBookingDocument(
+    tenantId: string,
+    convoId: string,
+    clientId: string,
+    phoneKey: string,
+    text: string,
+  ) {
+    const current = await this.prisma.client.findFirst({
+      where: { id: clientId, tenantId, deletedAt: null },
+    });
+
+    if (
+      current?.documentNumber &&
+      /^(si|sí|ok|okay|dale|confirmar|igual)$/i.test(text.trim())
+    ) {
+      return this.promptBookingName(convoId, current);
+    }
+
+    if (!isValidDocument(text)) {
+      return this.setState(
+        convoId,
+        WhatsAppConversationState.BOOKING_DOCUMENT,
+        {},
+        this.withNav(
+          'Documento no válido. Escribe tu cédula (solo números, mínimo 5 dígitos).',
+        ),
+        navActions(),
+      );
+    }
+
+    try {
+      const resolved = await this.clients.resolveByDocument(tenantId, {
+        documentNumber: text,
+        phone: phoneKey,
+        firstName:
+          current &&
+          current.firstName &&
+          !/^cliente$/i.test(current.firstName.trim())
+            ? current.firstName
+            : undefined,
+        lastName:
+          current && current.lastName && current.lastName !== '—'
+            ? current.lastName
+            : undefined,
+      });
+
+      if (resolved.id !== clientId) {
+        await this.prisma.whatsAppConversation.update({
+          where: { id: convoId },
+          data: { clientId: resolved.id },
+        });
+      }
+
+      return this.promptBookingName(convoId, resolved);
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : 'No se pudo validar el documento.';
+      return this.setState(
+        convoId,
+        WhatsAppConversationState.BOOKING_DOCUMENT,
+        {},
+        this.withNav(msg),
+        navActions(),
+      );
+    }
+  }
+
   private async promptBookingName(
     convoId: string,
     client: { firstName: string; lastName: string },
@@ -667,8 +774,8 @@ export class WhatsappService {
       .trim();
 
     const message = placeholder
-      ? 'Para agendar tu cita, ¿cuál es tu nombre completo?'
-      : `Para agendar, confirma o escribe tu nombre completo.\n(Actual: ${current})`;
+      ? '¿Cuál es tu nombre completo?'
+      : `Confirma o escribe tu nombre completo.\n(Actual: ${current})`;
 
     return this.setState(
       convoId,
@@ -1270,6 +1377,7 @@ export class WhatsappService {
       state === WhatsAppConversationState.BOOKING_CONFIRM ||
       state === WhatsAppConversationState.BOOKING_SERVICE ||
       state === WhatsAppConversationState.BOOKING_NAME ||
+      state === WhatsAppConversationState.BOOKING_DOCUMENT ||
       Boolean(ctx.awaitingConfirm);
 
     if (shouldScanPending && clientIds.length) {

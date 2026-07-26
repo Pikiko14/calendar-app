@@ -1,5 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AppointmentStatus } from '@prisma/client';
+import { isValidDocument, normalizeDocument } from '../common/document.util';
+import { normalizePhone, phoneLookupVariants } from '../common/phone.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClientDto } from './dto/client.dto';
 
@@ -7,6 +13,14 @@ type ClientStats = {
   visitCount: number;
   totalSpent: number;
   lastVisitAt: Date | null;
+};
+
+export type ResolveClientInput = {
+  documentNumber: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  email?: string;
 };
 
 @Injectable()
@@ -35,12 +49,39 @@ export class ClientsService {
   }
 
   create(tenantId: string, dto: ClientDto) {
-    return this.prisma.client.create({ data: { tenantId, ...dto } });
+    const documentNumber = dto.documentNumber
+      ? normalizeDocument(dto.documentNumber)
+      : undefined;
+    if (dto.documentNumber && !isValidDocument(dto.documentNumber)) {
+      throw new BadRequestException('Número de documento inválido.');
+    }
+    return this.prisma.client.create({
+      data: {
+        tenantId,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        email: dto.email,
+        phone: dto.phone,
+        whatsapp: dto.whatsapp,
+        notes: dto.notes,
+        tags: dto.tags,
+        documentNumber: documentNumber || null,
+      },
+    });
   }
 
   async update(tenantId: string, id: string, dto: Partial<ClientDto>) {
     await this.one(tenantId, id);
-    return this.prisma.client.update({ where: { id }, data: dto });
+    const data: Record<string, unknown> = { ...dto };
+    if (dto.documentNumber !== undefined) {
+      if (dto.documentNumber && !isValidDocument(dto.documentNumber)) {
+        throw new BadRequestException('Número de documento inválido.');
+      }
+      data.documentNumber = dto.documentNumber
+        ? normalizeDocument(dto.documentNumber)
+        : null;
+    }
+    return this.prisma.client.update({ where: { id }, data });
   }
 
   async remove(tenantId: string, id: string) {
@@ -59,6 +100,103 @@ export class ClientsService {
       where: { tenantId, clientId: id, deletedAt: null },
       include: { service: true, worker: true },
       orderBy: { startAt: 'desc' },
+    });
+  }
+
+  /**
+   * Identifica o crea cliente por documento (clave principal).
+   * Si no existe el documento, reutiliza el cliente del teléfono cuando aplica.
+   */
+  async resolveByDocument(tenantId: string, input: ResolveClientInput) {
+    if (!isValidDocument(input.documentNumber)) {
+      throw new BadRequestException(
+        'Número de documento inválido. Usa tu cédula (mín. 5 dígitos).',
+      );
+    }
+    const documentNumber = normalizeDocument(input.documentNumber);
+    const phone = input.phone ? normalizePhone(input.phone) : undefined;
+    const firstName = input.firstName?.trim();
+    const lastName = input.lastName?.trim();
+
+    const byDoc = await this.prisma.client.findFirst({
+      where: { tenantId, documentNumber, deletedAt: null },
+    });
+
+    if (byDoc) {
+      const data: Record<string, unknown> = {};
+      if (firstName) data.firstName = firstName;
+      if (lastName) data.lastName = lastName;
+      if (input.email) data.email = input.email;
+      if (phone && phone !== byDoc.phone) {
+        const phoneTaken = await this.prisma.client.findFirst({
+          where: {
+            tenantId,
+            phone,
+            deletedAt: null,
+            NOT: { id: byDoc.id },
+          },
+          select: { id: true },
+        });
+        if (!phoneTaken) {
+          data.phone = phone;
+          data.whatsapp = phone;
+        }
+      }
+      if (!Object.keys(data).length) return byDoc;
+      return this.prisma.client.update({ where: { id: byDoc.id }, data });
+    }
+
+    if (phone) {
+      const variants = phoneLookupVariants(phone);
+      const byPhone = await this.prisma.client.findFirst({
+        where: {
+          tenantId,
+          deletedAt: null,
+          OR: [
+            { phone: { in: variants } },
+            { whatsapp: { in: variants } },
+          ],
+        },
+      });
+      if (byPhone) {
+        if (
+          byPhone.documentNumber &&
+          byPhone.documentNumber !== documentNumber
+        ) {
+          throw new BadRequestException(
+            'Este teléfono ya está asociado a otro documento.',
+          );
+        }
+        return this.prisma.client.update({
+          where: { id: byPhone.id },
+          data: {
+            documentNumber,
+            ...(firstName ? { firstName } : {}),
+            ...(lastName ? { lastName } : {}),
+            ...(input.email ? { email: input.email } : {}),
+            phone,
+            whatsapp: phone,
+          },
+        });
+      }
+    }
+
+    if (!firstName || !lastName) {
+      throw new BadRequestException(
+        'Nombre y apellido son obligatorios para registrar el cliente.',
+      );
+    }
+
+    return this.prisma.client.create({
+      data: {
+        tenantId,
+        documentNumber,
+        firstName,
+        lastName,
+        phone: phone || null,
+        whatsapp: phone || null,
+        email: input.email,
+      },
     });
   }
 

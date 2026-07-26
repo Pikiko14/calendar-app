@@ -77,6 +77,13 @@ export const clientSchema = yup.object({
     .trim()
     .required('El nombre es obligatorio')
     .min(2, 'Usa al menos 2 caracteres'),
+  documentNumber: yup
+    .string()
+    .trim()
+    .required('El documento es obligatorio')
+    .test('doc', 'Documento inválido (mín. 5 dígitos)', (v) => {
+      return Boolean(v && v.replace(/\D/g, '').length >= 5)
+    }),
   phone: yup
     .string()
     .trim()

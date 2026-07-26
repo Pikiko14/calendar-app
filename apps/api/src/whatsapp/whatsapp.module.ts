@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { AiModule } from '../ai/ai.module';
+import { ClientsModule } from '../clients/clients.module';
 import { PlansModule } from '../plans/plans.module';
 import { ReviewsModule } from '../reviews/reviews.module';
 import { WhatsappController } from './whatsapp.controller';
@@ -13,6 +14,7 @@ import { WhatsappBaileysService } from './whatsapp-baileys.service';
     AiModule,
     ReviewsModule,
     PlansModule,
+    ClientsModule,
   ],
   controllers: [WhatsappController],
   providers: [WhatsappService, WhatsappBaileysService],

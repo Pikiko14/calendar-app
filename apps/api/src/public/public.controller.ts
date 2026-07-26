@@ -11,6 +11,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, MinLength } from 'class-validator';
 import { Public } from '../common/decorators/public.decorator';
 import { AppointmentsService } from '../appointments/appointments.service';
+import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewsService } from '../reviews/reviews.service';
 
@@ -18,6 +19,7 @@ class PublicBookDto {
   @IsString() @MinLength(1) firstName!: string;
   @IsString() @MinLength(1) lastName!: string;
   @IsString() @MinLength(5) phone!: string;
+  @IsString() @MinLength(5) documentNumber!: string;
   @IsOptional() @IsString() email?: string;
   @IsString() serviceId!: string;
   @IsString() workerId!: string;
@@ -32,6 +34,7 @@ export class PublicController {
     private readonly prisma: PrismaService,
     private readonly appointments: AppointmentsService,
     private readonly reviews: ReviewsService,
+    private readonly clients: ClientsService,
   ) {}
 
   /** Catálogo público de negocios con reserva online. */
@@ -240,6 +243,7 @@ export class PublicController {
       firstName: string;
       lastName?: string;
       phone: string;
+      documentNumber: string;
       serviceId: string;
       workerId?: string;
       preferredDate?: string;
@@ -247,19 +251,11 @@ export class PublicController {
     },
   ) {
     const tenant = await this.requireTenant(slug);
-    const client = await this.prisma.client.upsert({
-      where: { tenantId_phone: { tenantId: tenant.id, phone: body.phone } },
-      create: {
-        tenantId: tenant.id,
-        firstName: body.firstName,
-        lastName: body.lastName || '',
-        phone: body.phone,
-        whatsapp: body.phone,
-      },
-      update: {
-        firstName: body.firstName,
-        lastName: body.lastName || undefined,
-      },
+    const client = await this.clients.resolveByDocument(tenant.id, {
+      documentNumber: body.documentNumber,
+      firstName: body.firstName,
+      lastName: body.lastName || '—',
+      phone: body.phone,
     });
     return this.prisma.waitlistEntry.create({
       data: {
@@ -295,21 +291,12 @@ export class PublicController {
   @Post(':slug/book')
   async book(@Param('slug') slug: string, @Body() dto: PublicBookDto) {
     const tenant = await this.requireTenant(slug);
-    const client = await this.prisma.client.upsert({
-      where: { tenantId_phone: { tenantId: tenant.id, phone: dto.phone } },
-      create: {
-        tenantId: tenant.id,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        phone: dto.phone,
-        whatsapp: dto.phone,
-        email: dto.email,
-      },
-      update: {
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        email: dto.email,
-      },
+    const client = await this.clients.resolveByDocument(tenant.id, {
+      documentNumber: dto.documentNumber,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      phone: dto.phone,
+      email: dto.email,
     });
 
     return this.appointments.create(tenant.id, {

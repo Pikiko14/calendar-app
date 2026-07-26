@@ -148,6 +148,7 @@ enum WaitlistStatus {
 enum WhatsAppConversationState {
   IDLE
   MENU
+  BOOKING_DOCUMENT
   BOOKING_NAME
   BOOKING_SERVICE
   BOOKING_DATE
@@ -618,24 +619,26 @@ model Service {
 // =============================================================================
 
 model Client {
-  id            String    @id @default(cuid())
-  tenantId      String
-  userId        String?   @unique
-  firstName     String
-  lastName      String
-  email         String?
-  phone         String?
-  whatsapp      String?
-  birthday      DateTime? @db.Date
-  notes         String?
-  tags          String[]  @default([])
-  totalSpent    Decimal   @default(0) @db.Decimal(14, 2)
-  visitCount    Int       @default(0)
-  lastVisitAt   DateTime?
-  loyaltyPoints Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  id             String    @id @default(cuid())
+  tenantId       String
+  userId         String?   @unique
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  whatsapp       String?
+  /** Cédula / documento de identidad (clave de identificación del cliente). */
+  documentNumber String?
+  birthday       DateTime? @db.Date
+  notes          String?
+  tags           String[]  @default([])
+  totalSpent     Decimal   @default(0) @db.Decimal(14, 2)
+  visitCount     Int       @default(0)
+  lastVisitAt    DateTime?
+  loyaltyPoints  Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user            User?                @relation(fields: [userId], references: [id])
@@ -649,6 +652,7 @@ model Client {
   packages        ClientPackage[]
 
   @@unique([tenantId, phone])
+  @@unique([tenantId, documentNumber])
   @@index([tenantId, email])
   @@index([tenantId, whatsapp])
   @@map("clients")

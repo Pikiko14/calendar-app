@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import dayjs from 'dayjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { bogotaDayRange } from '../common/bogota-day';
 
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async metrics(tenantId: string) {
-    const dayStart = dayjs().startOf('day').toDate();
-    const dayEnd = dayjs().endOf('day').toDate();
-    const weekStart = dayjs().startOf('week').toDate();
+    const { dayStart, dayEnd } = bogotaDayRange();
+    const weekStart = dayjs(dayStart).subtract(6, 'day').toDate();
     const sixMonthsAgo = dayjs().subtract(5, 'month').startOf('month').toDate();
 
     const [
@@ -24,7 +24,11 @@ export class DashboardService {
       topWorkerGroups,
     ] = await Promise.all([
       this.prisma.appointment.count({
-        where: { tenantId, startAt: { gte: dayStart, lte: dayEnd }, deletedAt: null },
+        where: {
+          tenantId,
+          startAt: { gte: dayStart, lte: dayEnd },
+          deletedAt: null,
+        },
       }),
       this.prisma.appointment.count({
         where: {
@@ -34,19 +38,31 @@ export class DashboardService {
           deletedAt: null,
         },
       }),
-      this.prisma.invoice.aggregate({
+      // Solo facturas PAID del día (Bogotá), no pagos sueltos ni suscripciones
+      this.prisma.invoice.findMany({
         where: {
           tenantId,
           status: 'PAID',
-          paidAt: { gte: dayStart, lte: dayEnd },
+          OR: [
+            { paidAt: { gte: dayStart, lte: dayEnd } },
+            { paidAt: null, issuedAt: { gte: dayStart, lte: dayEnd } },
+          ],
         },
-        _sum: { total: true },
+        select: { total: true },
       }),
       this.prisma.appointment.count({
-        where: { tenantId, status: 'CANCELLED', startAt: { gte: dayStart, lte: dayEnd } },
+        where: {
+          tenantId,
+          status: 'CANCELLED',
+          startAt: { gte: dayStart, lte: dayEnd },
+        },
       }),
       this.prisma.appointment.count({
-        where: { tenantId, status: 'NO_SHOW', startAt: { gte: dayStart, lte: dayEnd } },
+        where: {
+          tenantId,
+          status: 'NO_SHOW',
+          startAt: { gte: dayStart, lte: dayEnd },
+        },
       }),
       this.prisma.appointment.findMany({
         where: { tenantId, startAt: { gte: weekStart }, deletedAt: null },
@@ -56,37 +72,52 @@ export class DashboardService {
         where: {
           tenantId,
           status: 'PAID',
-          paidAt: { gte: sixMonthsAgo },
+          OR: [
+            { paidAt: { gte: sixMonthsAgo } },
+            { paidAt: null, issuedAt: { gte: sixMonthsAgo } },
+          ],
         },
-        select: { total: true, paidAt: true },
+        select: { total: true, paidAt: true, issuedAt: true },
       }),
       this.prisma.appointment.groupBy({
         by: ['serviceId'],
-        where: { tenantId, deletedAt: null, status: { in: ['COMPLETED', 'CONFIRMED', 'PENDING'] } },
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['COMPLETED', 'CONFIRMED', 'PENDING'] },
+        },
         _count: { serviceId: true },
         orderBy: { _count: { serviceId: 'desc' } },
         take: 5,
       }),
       this.prisma.appointment.groupBy({
         by: ['workerId'],
-        where: { tenantId, deletedAt: null, status: { in: ['COMPLETED', 'CONFIRMED', 'PENDING'] } },
+        where: {
+          tenantId,
+          deletedAt: null,
+          status: { in: ['COMPLETED', 'CONFIRMED', 'PENDING'] },
+        },
         _count: { workerId: true },
         orderBy: { _count: { workerId: 'desc' } },
         take: 5,
       }),
     ]);
 
+    const revenue = revenueToday.reduce((s, inv) => s + Number(inv.total), 0);
+
     const serviceIds = topServiceGroups.map((g) => g.serviceId);
     const workerIds = topWorkerGroups.map((g) => g.workerId);
     const [services, workers] = await Promise.all([
-      this.prisma.service.findMany({ where: { id: { in: serviceIds } }, select: { id: true, name: true } }),
+      this.prisma.service.findMany({
+        where: { id: { in: serviceIds } },
+        select: { id: true, name: true },
+      }),
       this.prisma.worker.findMany({
         where: { id: { in: workerIds } },
         select: { id: true, firstName: true, lastName: true },
       }),
     ]);
 
-    const weekLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     const weekCounts = Array(7).fill(0);
     for (const a of weekAppointments) {
       weekCounts[dayjs(a.startAt).day()] += 1;
@@ -105,13 +136,17 @@ export class DashboardService {
     };
 
     const monthlyMap = new Map<string, number>();
+    const monthKeys: string[] = [];
     for (let i = 5; i >= 0; i--) {
       const m = dayjs().subtract(i, 'month');
-      monthlyMap.set(m.format('MMM'), 0);
+      const key = m.format('YYYY-MM');
+      monthKeys.push(key);
+      monthlyMap.set(key, 0);
     }
     for (const inv of monthInvoices) {
-      if (!inv.paidAt) continue;
-      const key = dayjs(inv.paidAt).format('MMM');
+      const when = inv.paidAt || inv.issuedAt;
+      if (!when) continue;
+      const key = dayjs(when).format('YYYY-MM');
       if (monthlyMap.has(key)) {
         monthlyMap.set(key, (monthlyMap.get(key) || 0) + Number(inv.total));
       }
@@ -120,13 +155,14 @@ export class DashboardService {
     return {
       today,
       completedToday,
-      revenue: Number(revenueToday._sum.total ?? 0),
+      revenue,
+      paidInvoicesToday: revenueToday.length,
       cancelled,
       noShows,
       weekly,
       monthly: {
-        labels: [...monthlyMap.keys()],
-        data: [...monthlyMap.values()],
+        labels: monthKeys.map((k) => dayjs(`${k}-01`).format('MMM')),
+        data: monthKeys.map((k) => monthlyMap.get(k) || 0),
       },
       topServices: topServiceGroups.map((g) => ({
         id: g.serviceId,
@@ -141,7 +177,6 @@ export class DashboardService {
           count: g._count.workerId,
         };
       }),
-      weekLabels,
     };
   }
 }

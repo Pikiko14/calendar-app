@@ -48,6 +48,8 @@ type Summary = {
   paid: number
   cancelled: number
   paidTotal: number
+  paidToday?: number
+  paidTodayCount?: number
 }
 
 type AppointmentOption = {
@@ -64,6 +66,8 @@ const error = ref('')
 const rows = ref<InvoiceRow[]>([])
 const summary = ref<Summary | null>(null)
 const filter = ref<'ALL' | 'ISSUED' | 'PAID' | 'CANCELLED'>('ALL')
+const clientFilterId = ref('')
+const clientSearch = ref('')
 const showModal = ref(false)
 const busy = ref(false)
 const appointments = ref<AppointmentOption[]>([])
@@ -153,8 +157,31 @@ function statusClass(s: string) {
 }
 
 const filtered = computed(() => {
-  if (filter.value === 'ALL') return rows.value
-  return rows.value.filter((r) => r.status === filter.value)
+  let list = rows.value
+  if (filter.value !== 'ALL') {
+    list = list.filter((r) => r.status === filter.value)
+  }
+  if (clientFilterId.value) {
+    list = list.filter((r) => r.client?.id === clientFilterId.value)
+  }
+  const q = clientSearch.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter((r) => {
+      const name = `${r.client?.firstName || ''} ${r.client?.lastName || ''}`.toLowerCase()
+      return name.includes(q) || r.number.toLowerCase().includes(q)
+    })
+  }
+  return list
+})
+
+const clientOptions = computed(() => {
+  const map = new Map<string, { id: string; firstName: string; lastName: string }>()
+  for (const r of rows.value) {
+    if (r.client?.id) map.set(r.client.id, r.client)
+  }
+  return [...map.values()].sort((a, b) =>
+    `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, 'es'),
+  )
 })
 
 async function load() {
@@ -515,7 +542,7 @@ async function openDetail(row: InvoiceRow) {
       </button>
     </div>
 
-    <div v-if="summary" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div v-if="summary" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       <div class="surface p-4">
         <p class="text-xs text-ink-muted">Emitidas</p>
         <p class="mt-1 font-display text-2xl font-bold">{{ summary.issued }}</p>
@@ -529,31 +556,58 @@ async function openDetail(row: InvoiceRow) {
         <p class="mt-1 font-display text-2xl font-bold">{{ summary.cancelled }}</p>
       </div>
       <div class="surface p-4">
-        <p class="text-xs text-ink-muted">Cobrado</p>
+        <p class="text-xs text-ink-muted">Cobrado hoy</p>
+        <p class="mt-1 font-display text-2xl font-bold">{{ money(summary.paidToday ?? 0) }}</p>
+        <p v-if="summary.paidTodayCount != null" class="mt-0.5 text-[11px] text-ink-muted">
+          {{ summary.paidTodayCount }} factura{{ summary.paidTodayCount === 1 ? '' : 's' }}
+        </p>
+      </div>
+      <div class="surface p-4">
+        <p class="text-xs text-ink-muted">Cobrado (total)</p>
         <p class="mt-1 font-display text-2xl font-bold">{{ money(summary.paidTotal) }}</p>
       </div>
     </div>
 
-    <div class="flex flex-wrap gap-2">
-      <button
-        v-for="f in [
-          { id: 'ALL', label: 'Todas' },
-          { id: 'ISSUED', label: 'Emitidas' },
-          { id: 'PAID', label: 'Pagadas' },
-          { id: 'CANCELLED', label: 'Canceladas' },
-        ]"
-        :key="f.id"
-        type="button"
-        class="rounded-full px-3 py-1.5 text-xs font-semibold transition"
-        :class="
-          filter === f.id
-            ? 'bg-brand-700 text-white'
-            : 'bg-black/5 text-ink-muted hover:bg-black/10 dark:bg-white/5'
-        "
-        @click="filter = f.id as typeof filter"
-      >
-        {{ f.label }}
-      </button>
+    <div class="flex flex-wrap items-end gap-3">
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-for="f in [
+            { id: 'ALL', label: 'Todas' },
+            { id: 'ISSUED', label: 'Emitidas' },
+            { id: 'PAID', label: 'Pagadas' },
+            { id: 'CANCELLED', label: 'Canceladas' },
+          ]"
+          :key="f.id"
+          type="button"
+          class="rounded-full px-3 py-1.5 text-xs font-semibold transition"
+          :class="
+            filter === f.id
+              ? 'bg-brand-700 text-white'
+              : 'bg-black/5 text-ink-muted hover:bg-black/10 dark:bg-white/5'
+          "
+          @click="filter = f.id as typeof filter"
+        >
+          {{ f.label }}
+        </button>
+      </div>
+      <label class="min-w-[180px] flex-1 text-sm sm:max-w-[220px]">
+        <span class="sr-only">Cliente</span>
+        <select v-model="clientFilterId" class="input-field !rounded-xl !py-2.5">
+          <option value="">Todos los clientes</option>
+          <option v-for="c in clientOptions" :key="c.id" :value="c.id">
+            {{ c.firstName }} {{ c.lastName }}
+          </option>
+        </select>
+      </label>
+      <label class="min-w-[180px] flex-1 text-sm sm:max-w-[240px]">
+        <span class="sr-only">Buscar</span>
+        <input
+          v-model="clientSearch"
+          type="search"
+          placeholder="Buscar cliente o factura…"
+          class="input-field !rounded-xl !py-2.5"
+        />
+      </label>
     </div>
 
     <p v-if="error" class="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{{ error }}</p>

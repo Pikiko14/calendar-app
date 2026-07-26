@@ -142,7 +142,10 @@ const stats = computed(() => [
       currency: 'COP',
       maximumFractionDigits: 0,
     }),
-    hint: 'Facturas pagadas',
+    hint:
+      metrics.value?.paidInvoicesToday != null
+        ? `${metrics.value.paidInvoicesToday} factura${metrics.value.paidInvoicesToday === 1 ? '' : 's'} pagada${metrics.value.paidInvoicesToday === 1 ? '' : 's'}`
+        : 'Facturas pagadas',
     icon: Wallet,
     tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   },

@@ -33,8 +33,9 @@ export class InvoicesController {
   list(
     @TenantId() tenantId: string,
     @Query('status') status?: InvoiceStatus,
+    @Query('clientId') clientId?: string,
   ) {
-    return this.invoices.list(tenantId, status);
+    return this.invoices.list(tenantId, status, clientId);
   }
 
   @Get('summary')

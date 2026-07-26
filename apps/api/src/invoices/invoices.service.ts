@@ -19,6 +19,7 @@ import {
   CreateInvoiceDto,
   PayInvoiceDto,
 } from './dto/invoices.dto';
+import { bogotaDayRange } from '../common/bogota-day';
 
 @Injectable()
 export class InvoicesService {
@@ -28,11 +29,12 @@ export class InvoicesService {
     private readonly baileys: WhatsappBaileysService,
   ) {}
 
-  list(tenantId: string, status?: InvoiceStatus) {
+  list(tenantId: string, status?: InvoiceStatus, clientId?: string) {
     return this.prisma.invoice.findMany({
       where: {
         tenantId,
         ...(status ? { status } : {}),
+        ...(clientId ? { clientId } : {}),
       },
       include: {
         client: {
@@ -536,7 +538,8 @@ export class InvoicesService {
   }
 
   async summary(tenantId: string) {
-    const [issued, paid, cancelled, paidAgg] = await Promise.all([
+    const { dayStart, dayEnd } = bogotaDayRange();
+    const [issued, paid, cancelled, paidAgg, paidTodayRows] = await Promise.all([
       this.prisma.invoice.count({
         where: { tenantId, status: InvoiceStatus.ISSUED },
       }),
@@ -550,12 +553,26 @@ export class InvoicesService {
         where: { tenantId, status: InvoiceStatus.PAID },
         _sum: { total: true },
       }),
+      this.prisma.invoice.findMany({
+        where: {
+          tenantId,
+          status: InvoiceStatus.PAID,
+          OR: [
+            { paidAt: { gte: dayStart, lte: dayEnd } },
+            { paidAt: null, issuedAt: { gte: dayStart, lte: dayEnd } },
+          ],
+        },
+        select: { total: true },
+      }),
     ]);
+    const paidToday = paidTodayRows.reduce((s, r) => s + Number(r.total), 0);
     return {
       issued,
       paid,
       cancelled,
       paidTotal: Number(paidAgg._sum.total || 0),
+      paidToday,
+      paidTodayCount: paidTodayRows.length,
     };
   }
 

@@ -64,9 +64,9 @@ router.beforeEach(async (to) => {
       const allowed = to.name === 'calendar'
       if (!allowed) return { name: 'calendar' }
     } else if (!auth.hasSubscription) {
+      // Sin suscripción: forzar Ajustes → Planes (siempre con query)
       const onPlans =
-        to.name === 'settings' &&
-        (String(to.query.tab || '') === 'planes' || !to.query.tab)
+        to.name === 'settings' && String(to.query.tab || '') === 'planes'
       if (!onPlans) {
         return { name: 'settings', query: { tab: 'planes' } }
       }

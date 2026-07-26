@@ -17,15 +17,20 @@ type SettingsTab =
   | 'whatsapp'
   | 'planes'
 
-const tabs: Array<{ id: SettingsTab; label: string }> = [
-  { id: 'marca', label: 'Marca' },
-  { id: 'ubicacion', label: 'Ubicación' },
-  { id: 'reservas', label: 'Reservas' },
-  { id: 'horario', label: 'Horario' },
-  { id: 'especialidades', label: 'Especialidades' },
-  { id: 'whatsapp', label: 'WhatsApp' },
-  { id: 'planes', label: 'Planes' },
-]
+const tabs = computed(() => {
+  if (!auth.hasSubscription) {
+    return [{ id: 'planes' as SettingsTab, label: 'Planes' }]
+  }
+  return [
+    { id: 'marca' as SettingsTab, label: 'Marca' },
+    { id: 'ubicacion' as SettingsTab, label: 'Ubicación' },
+    { id: 'reservas' as SettingsTab, label: 'Reservas' },
+    { id: 'horario' as SettingsTab, label: 'Horario' },
+    { id: 'especialidades' as SettingsTab, label: 'Especialidades' },
+    { id: 'whatsapp' as SettingsTab, label: 'WhatsApp' },
+    { id: 'planes' as SettingsTab, label: 'Planes' },
+  ]
+})
 
 const activeTab = ref<SettingsTab>('marca')
 const auth = useAuthStore()
@@ -45,10 +50,12 @@ const SETTINGS_TABS: SettingsTab[] = [
 
 function applyTabFromQuery() {
   const tab = String(route.query.tab || '')
+  if (!auth.hasSubscription) {
+    activeTab.value = 'planes'
+    return
+  }
   if (SETTINGS_TABS.includes(tab as SettingsTab)) {
     activeTab.value = tab as SettingsTab
-  } else if (!auth.hasSubscription) {
-    activeTab.value = 'planes'
   }
 }
 
@@ -322,7 +329,33 @@ async function syncEpaycoReturn() {
 async function load() {
   loading.value = true
   error.value = ''
+  const needsPlan = !auth.hasSubscription
+
   try {
+    // Sin suscripción: solo lo mínimo + planes (el resto de endpoints están 403).
+    if (needsPlan) {
+      try {
+        const tenant = await api<{
+          name: string
+          primaryColor: string
+          logoUrl?: string | null
+        }>('/tenants/me')
+        name.value = tenant.name
+        primaryColor.value = tenant.primaryColor
+        logoUrl.value = tenant.logoUrl || null
+        logoPreview.value = tenant.logoUrl ? mediaUrl(tenant.logoUrl) : ''
+        applyBrandTheme(tenant.primaryColor)
+      } catch {
+        // Igual mostramos planes
+      }
+      await refreshPlans()
+      activeTab.value = 'planes'
+      if (String(route.query.tab || '') !== 'planes') {
+        await router.replace({ name: 'settings', query: { tab: 'planes' } })
+      }
+      return
+    }
+
     const [tenant, settings] = await Promise.all([
       api<{
         name: string
@@ -369,7 +402,6 @@ async function load() {
       }>('/branches/main/schedules')
       branchSchedules.value = branch.schedules || []
     } catch {
-      // Fallback: sede principal completa
       try {
         const branch = await api<{
           schedules: Array<{
@@ -379,11 +411,8 @@ async function load() {
           }>
         }>('/branches/main')
         branchSchedules.value = branch.schedules || []
-      } catch (e) {
-        error.value =
-          e instanceof Error
-            ? e.message
-            : 'No se pudo cargar el horario del negocio'
+      } catch {
+        branchSchedules.value = []
       }
     }
 
@@ -401,7 +430,13 @@ async function load() {
     await refreshWhatsapp()
     await refreshPlans()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'No se pudo cargar'
+    // No bloquear la UI de planes si falla algo secundario
+    if (!auth.hasSubscription) {
+      await refreshPlans()
+      activeTab.value = 'planes'
+    } else {
+      error.value = e instanceof Error ? e.message : 'No se pudo cargar'
+    }
   } finally {
     loading.value = false
   }
@@ -748,10 +783,21 @@ const showSaveBar = computed(() =>
     <p class="section-eyebrow">Negocio</p>
     <h1 class="font-display mt-2 text-display-md font-bold">Ajustes</h1>
 
-    <p v-if="error" class="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{{ error }}</p>
+    <p
+      v-if="error && auth.hasSubscription"
+      class="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700"
+    >
+      {{ error }}
+    </p>
     <p v-else-if="loading" class="mt-4 text-ink-muted">Cargando…</p>
 
-    <template v-else>
+    <template v-if="!loading && (!error || !auth.hasSubscription)">
+      <div
+        v-if="!auth.hasSubscription"
+        class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200"
+      >
+        Elige un plan para desbloquear el resto de la app.
+      </div>
       <div
         class="mt-6 flex gap-1 overflow-x-auto rounded-2xl bg-black/[0.04] p-1 dark:bg-white/5"
         role="tablist"

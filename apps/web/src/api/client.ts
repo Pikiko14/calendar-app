@@ -19,6 +19,10 @@ function extractMessage(payload: unknown, fallback: string): string {
   const msg = (payload as { message?: unknown }).message
   if (Array.isArray(msg)) return msg.join(', ')
   if (typeof msg === 'string') return msg
+  if (msg && typeof msg === 'object' && 'message' in msg) {
+    const nested = (msg as { message?: unknown }).message
+    if (typeof nested === 'string') return nested
+  }
   return fallback
 }
 

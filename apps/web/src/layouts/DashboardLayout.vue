@@ -13,6 +13,9 @@ import {
   MoonStar,
   ExternalLink,
   Receipt,
+  BarChart3,
+  Wallet,
+  Sparkles,
 } from '@lucide/vue'
 import { useThemeStore } from '@/stores/theme'
 import { useAuthStore } from '@/stores/auth'
@@ -29,20 +32,23 @@ const tenantName = computed(() => auth.user?.tenant?.name || 'Tu negocio')
 const tenantInitial = computed(() => (tenantName.value || 'N').slice(0, 1).toUpperCase())
 
 const navAll = [
-  { label: 'Inicio', to: '/app', icon: LayoutDashboard },
+  { label: 'Inicio', to: '/app', icon: LayoutDashboard, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
   { label: 'Calendario', to: '/app/calendar', icon: CalendarDays },
-  { label: 'Servicios', to: '/app/services', icon: Scissors },
-  { label: 'Equipo', to: '/app/workers', icon: UsersRound },
-  { label: 'Clientes', to: '/app/clients', icon: Contact },
-  { label: 'Facturación', to: '/app/invoices', icon: Receipt },
-  { label: 'Ajustes', to: '/app/settings', icon: Settings2 },
+  { label: 'Servicios', to: '/app/services', icon: Scissors, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
+  { label: 'Equipo', to: '/app/workers', icon: UsersRound, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
+  { label: 'Clientes', to: '/app/clients', icon: Contact, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
+  { label: 'Facturación', to: '/app/invoices', icon: Receipt, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
+  { label: 'Caja', to: '/app/cash', icon: Wallet, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
+  { label: 'Reportes', to: '/app/reports', icon: BarChart3, roles: ['ADMIN', 'SUPER_ADMIN'] },
+  { label: 'Crecimiento', to: '/app/growth', icon: Sparkles, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
+  { label: 'Ajustes', to: '/app/settings', icon: Settings2, roles: ['ADMIN', 'SUPER_ADMIN', 'RECEPTIONIST'] },
 ]
 
-const nav = computed(() =>
-  auth.isWorker
-    ? navAll.filter((i) => i.to === '/app/calendar')
-    : navAll,
-)
+const nav = computed(() => {
+  if (auth.isWorker) return navAll.filter((i) => i.to === '/app/calendar')
+  const role = auth.user?.role || ''
+  return navAll.filter((i) => !i.roles || i.roles.includes(role))
+})
 
 function roleLabel(role?: string) {
   if (role === 'WORKER') return 'Trabajador'

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { FileText, Plus, Banknote, XCircle, Printer } from '@lucide/vue'
-import { api } from '@/api/client'
+import { FileText, Plus, Banknote, XCircle, Printer, MessageCircle, Download } from '@lucide/vue'
+import { api, API_ORIGIN } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
 import { printInvoice } from '@/lib/printInvoice'
 import { useAuthStore } from '@/stores/auth'
@@ -145,6 +145,43 @@ async function doPrint(invoice: InvoiceRow) {
     printInvoice(full, { name: auth.user?.tenant?.name })
   } catch (e) {
     await toastError('No se pudo imprimir', e instanceof Error ? e.message : 'Error')
+  }
+}
+
+async function downloadPdf(row: InvoiceRow) {
+  try {
+    const token = localStorage.getItem('beautybook-token')
+    const base =
+      (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ??
+      `${API_ORIGIN}/api/v1`
+    const res = await fetch(`${base}/invoices/${row.id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) throw new Error('No se pudo descargar')
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `${row.number}.html`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    await toastSuccess('Descarga lista (ábrela e imprime como PDF)')
+  } catch (e) {
+    await toastError('PDF', e instanceof Error ? e.message : 'Error')
+  }
+}
+
+async function sendWhatsApp(row: InvoiceRow) {
+  const ok = await confirmAction({
+    title: '¿Enviar por WhatsApp?',
+    text: `Se enviará el resumen de ${row.number} al cliente.`,
+    confirmText: 'Enviar',
+  })
+  if (!ok) return
+  try {
+    await api(`/invoices/${row.id}/send-whatsapp`, { method: 'POST' })
+    await toastSuccess('Enviado por WhatsApp')
+  } catch (e) {
+    await toastError('WhatsApp', e instanceof Error ? e.message : 'Error')
   }
 }
 
@@ -309,6 +346,22 @@ onMounted(load)
                 >
                   <Printer class="h-3.5 w-3.5" />
                   Imprimir
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-semibold text-ink-muted hover:text-brand-800 dark:bg-white/5"
+                  @click="downloadPdf(row)"
+                >
+                  <Download class="h-3.5 w-3.5" />
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                  @click="sendWhatsApp(row)"
+                >
+                  <MessageCircle class="h-3.5 w-3.5" />
+                  WA
                 </button>
                 <button
                   v-if="row.status === 'ISSUED'"

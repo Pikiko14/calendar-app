@@ -70,6 +70,8 @@ const DAY_KEYS: DayKey[] = [
 const mode = ref<Mode>('Semana')
 const cursor = ref(dayjs().startOf('day'))
 const selectedWorkerId = ref('')
+const selectedBranchId = ref('')
+const branches = ref<Array<{ id: string; name: string; isMain?: boolean }>>([])
 const service = ref('Todos')
 const status = ref('Todos')
 const loading = ref(true)
@@ -392,8 +394,11 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [apps, scheduleRes, workers] = await Promise.all([
-      api<Appointment[]>('/appointments'),
+    const qs = selectedBranchId.value
+      ? `?branchId=${encodeURIComponent(selectedBranchId.value)}`
+      : ''
+    const [apps, scheduleRes, workers, branchList] = await Promise.all([
+      api<Appointment[]>(`/appointments${qs}`),
       api<{ schedules: DaySchedule[] }>('/branches/main/schedules').catch(
         async () => {
           try {
@@ -404,10 +409,14 @@ async function load() {
         },
       ),
       api<WorkerOption[]>('/workers').catch(() => [] as WorkerOption[]),
+      api<Array<{ id: string; name: string; isMain?: boolean }>>('/branches').catch(
+        () => [] as Array<{ id: string; name: string; isMain?: boolean }>,
+      ),
     ])
     appointments.value = apps
     businessSchedules.value = scheduleRes.schedules || []
     workersList.value = workers
+    branches.value = branchList
     if (auth.workerId) {
       selectedWorkerId.value = auth.workerId
     } else if (
@@ -554,6 +563,37 @@ onMounted(load)
 
     <template v-else>
       <div class="surface space-y-4 p-4 sm:p-5">
+        <div v-if="!isWorkerView && branches.length > 1">
+          <p class="text-xs font-bold uppercase tracking-wide text-ink-muted">Sede</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded-full px-3.5 py-1.5 text-sm font-semibold transition"
+              :class="
+                !selectedBranchId
+                  ? 'bg-brand-700 text-white'
+                  : 'bg-black/5 text-ink dark:bg-white/10'
+              "
+              @click="selectedBranchId = ''; load()"
+            >
+              Todas
+            </button>
+            <button
+              v-for="b in branches"
+              :key="b.id"
+              type="button"
+              class="rounded-full px-3.5 py-1.5 text-sm font-semibold transition"
+              :class="
+                selectedBranchId === b.id
+                  ? 'bg-brand-700 text-white'
+                  : 'bg-black/5 text-ink dark:bg-white/10'
+              "
+              @click="selectedBranchId = b.id; load()"
+            >
+              {{ b.name }}
+            </button>
+          </div>
+        </div>
         <div v-if="!isWorkerView">
           <p class="text-xs font-bold uppercase tracking-wide text-ink-muted">
             Trabajador

@@ -26,6 +26,10 @@ import { SpecialtiesModule } from './specialties/specialties.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { PlansModule } from './plans/plans.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { CashModule } from './cash/cash.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
+import { MarketingModule } from './marketing/marketing.module';
+import { PackagesModule } from './packages/packages.module';
 
 @Module({
   imports: [
@@ -54,6 +58,10 @@ import { InvoicesModule } from './invoices/invoices.module';
     ReviewsModule,
     PlansModule,
     InvoicesModule,
+    CashModule,
+    WaitlistModule,
+    MarketingModule,
+    PackagesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

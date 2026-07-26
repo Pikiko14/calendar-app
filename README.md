@@ -88,7 +88,7 @@ Endpoint de simulación: `POST /api/v1/whatsapp/simulate`
 
 1. **Prisma + PostgreSQL** como fuente de verdad; índices en `(workerId, startAt/endAt)` y buffers.
 2. **CQRS selectivo**: lecturas de dashboard/reportes separadas de comandos de agenda.
-3. **Pagos**: adapters stub (Stripe, MercadoPago, Wompi, PayPal) + pago local.
+3. **Pagos**: ePayco Smart Checkout para suscripciones de planes + pago local; Stripe legacy opcional.
 4. **OpenAI** opcional (`OPENAI_ENABLED=true`) para FAQ; fallback local sin clave.
 5. **Kubernetes/AWS-ready**: contenedores sin estado salvo volúmenes de uploads y sesiones WhatsApp.
 

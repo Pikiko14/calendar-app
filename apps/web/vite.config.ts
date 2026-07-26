@@ -16,13 +16,28 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'BeautyBook',
         short_name: 'BeautyBook',
-        description: 'Gestión y reservas para negocios de belleza',
+        description: 'Agenda del día y gestión para tu equipo de belleza',
         theme_color: '#0f766e',
         background_color: '#ffffff',
         display: 'standalone',
+        start_url: '/app/calendar',
+        scope: '/',
+        icons: [
+          {
+            src: '/favicon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any maskable',
+          },
+        ],
+      },
+      workbox: {
+        navigateFallback: '/index.html',
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
     }),
   ],

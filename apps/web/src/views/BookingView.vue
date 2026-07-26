@@ -54,6 +54,18 @@ const startAt = ref('')
 const firstName = ref('')
 const lastName = ref('')
 const phone = ref('')
+const publicReviews = ref<
+  Array<{
+    id: string
+    rating: number
+    comment: string | null
+    createdAt: string
+    client: { firstName: string; lastName: string }
+    worker: { firstName: string; lastName: string }
+  }>
+>([])
+const waitlistBusy = ref(false)
+const waitlistDone = ref(false)
 
 const dates = computed(() => {
   const ahead = Math.min(tenant.value?.settings?.maxBookingDaysAhead ?? 14, 60)
@@ -81,6 +93,10 @@ onMounted(async () => {
     if (!tenant.value) throw new Error('Negocio no encontrado')
     applyBrandTheme(tenant.value.primaryColor)
     services.value = await api<Service[]>(`/public/${slug.value}/services`)
+    const rev = await api<{ items: typeof publicReviews.value }>(
+      `/public/${slug.value}/reviews`,
+    ).catch(() => ({ items: [] as typeof publicReviews.value }))
+    publicReviews.value = rev.items || []
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'No se pudo cargar el portal'
     resetBrandTheme()
@@ -88,6 +104,33 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+async function joinWaitlist() {
+  if (!serviceId.value || !firstName.value || phone.value.length < 8) {
+    error.value = 'Completa nombre, teléfono y servicio para la lista de espera.'
+    return
+  }
+  waitlistBusy.value = true
+  error.value = ''
+  try {
+    await api(`/public/${slug.value}/waitlist`, {
+      method: 'POST',
+      body: JSON.stringify({
+        firstName: firstName.value,
+        lastName: lastName.value || undefined,
+        phone: phone.value,
+        serviceId: serviceId.value,
+        workerId: autoWorker.value ? undefined : workerId.value || undefined,
+        preferredDate: date.value || undefined,
+      }),
+    })
+    waitlistDone.value = true
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'No se pudo unir a la lista'
+  } finally {
+    waitlistBusy.value = false
+  }
+}
 
 async function loadWorkersForService(id: string) {
   if (!id) {
@@ -375,6 +418,29 @@ function initials(w: Worker) {
             {{ selectedService.durationMinutes }} min
           </p>
           <p v-if="!slots.length" class="mt-4 text-sm text-ink-muted">No hay horarios ese día.</p>
+          <div
+            v-if="!slots.length"
+            class="mt-4 rounded-2xl border border-dashed border-brand-700/30 bg-brand-50/40 p-4 dark:bg-brand-950/20"
+          >
+            <p class="text-sm font-medium">¿Sin cupo? Únete a la lista de espera</p>
+            <div class="mt-3 space-y-2">
+              <input v-model="firstName" placeholder="Nombre" class="input-field" />
+              <input v-model="lastName" placeholder="Apellido" class="input-field" />
+              <input v-model="phone" placeholder="WhatsApp" class="input-field" />
+            </div>
+            <p v-if="waitlistDone" class="mt-3 text-sm text-brand-800 dark:text-brand-300">
+              Te avisaremos cuando haya disponibilidad.
+            </p>
+            <button
+              v-else
+              type="button"
+              class="btn-primary mt-3 disabled:opacity-40"
+              :disabled="waitlistBusy || !firstName || phone.length < 8"
+              @click="joinWaitlist"
+            >
+              Unirme a la lista
+            </button>
+          </div>
           <div class="mt-4 grid grid-cols-3 gap-2.5">
             <button
               v-for="slot in slots"
@@ -431,6 +497,22 @@ function initials(w: Worker) {
         </p>
         <RouterLink to="/" class="btn-ghost mt-8 inline-flex">Volver a BeautyBook</RouterLink>
       </div>
+
+      <section v-if="publicReviews.length" class="mt-12 space-y-3">
+        <h2 class="font-display text-xl font-bold">Reseñas de clientes</h2>
+        <article
+          v-for="r in publicReviews"
+          :key="r.id"
+          class="rounded-2xl border border-black/5 bg-white/70 p-4 text-sm dark:border-white/10 dark:bg-ink-soft/60"
+        >
+          <StarRating :avg="r.rating" :count="1" />
+          <p class="mt-2 text-ink">{{ r.comment }}</p>
+          <p class="mt-2 text-xs text-ink-muted">
+            {{ r.client.firstName }} · {{ r.worker.firstName }}
+            · {{ dayjs(r.createdAt).format('MMM YYYY') }}
+          </p>
+        </article>
+      </section>
     </template>
   </main>
 </template>

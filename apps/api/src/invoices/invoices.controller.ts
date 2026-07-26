@@ -2,11 +2,14 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InvoiceStatus, UserRole } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -48,6 +51,31 @@ export class InvoicesController {
     @Param('appointmentId') appointmentId: string,
   ) {
     return this.invoices.byAppointment(tenantId, appointmentId);
+  }
+
+  @Get(':id/pdf')
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Descargar factura como HTML/PDF imprimible' })
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async pdf(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const html = await this.invoices.htmlDocument(tenantId, id);
+    const invoice = await this.invoices.one(tenantId, id);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${invoice.number}.html"`,
+    );
+    res.send(html);
+  }
+
+  @Post(':id/send-whatsapp')
+  @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Enviar factura por WhatsApp al cliente' })
+  sendWa(@TenantId() tenantId: string, @Param('id') id: string) {
+    return this.invoices.sendWhatsApp(tenantId, id);
   }
 
   @Get(':id')

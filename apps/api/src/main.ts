@@ -5,12 +5,26 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+    bodyParser: false,
+  });
+
+  // JSON + form-urlencoded (ePayco confirmation webhook)
+  app.use(
+    json({
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+  app.use(urlencoded({ extended: true }));
 
   const uploadsPath = join(process.cwd(), 'uploads');
   if (!existsSync(uploadsPath)) mkdirSync(uploadsPath, { recursive: true });
@@ -29,7 +43,12 @@ async function bootstrap() {
     origin: origins?.length ? origins : true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Stripe-Signature',
+    ],
   });
 
   app.useGlobalPipes(

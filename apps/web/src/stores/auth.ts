@@ -75,6 +75,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => Boolean(token.value))
   const isWorker = computed(() => user.value?.role === 'WORKER')
+  const isAdmin = computed(
+    () => user.value?.role === 'ADMIN' || user.value?.role === 'SUPER_ADMIN',
+  )
+  const isReceptionist = computed(() => user.value?.role === 'RECEPTIONIST')
+  const canSeeReports = computed(() => isAdmin.value)
+  const canManageCash = computed(() => isAdmin.value || isReceptionist.value)
   const workerId = computed(() => user.value?.worker?.id ?? null)
   const hasSubscription = computed(() => Boolean(user.value?.subscriptionActive))
   const displayName = computed(() => {
@@ -190,6 +196,10 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     isWorker,
+    isAdmin,
+    isReceptionist,
+    canSeeReports,
+    canManageCash,
     workerId,
     hasSubscription,
     displayName,

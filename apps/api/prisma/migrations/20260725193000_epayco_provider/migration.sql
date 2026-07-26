@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "PaymentMethod" ADD VALUE IF NOT EXISTS 'EPAYCO';
+ALTER TYPE "PaymentProvider" ADD VALUE IF NOT EXISTS 'EPAYCO';

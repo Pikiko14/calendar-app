@@ -43,7 +43,7 @@ export class WorkersService {
   async create(tenantId: string, dto: WorkerDto) {
     await this.plans.assertCanCreateWorker(tenantId);
     const main = await this.branches.getOrCreateMain(tenantId);
-    const { specialtyIds, password, ...rest } = dto;
+    const { specialtyIds, password, commissionPct, ...rest } = dto;
     const worker = await this.prisma.worker.create({
       data: {
         tenantId,
@@ -54,6 +54,7 @@ export class WorkersService {
         phone: rest.phone,
         photoUrl: rest.photoUrl,
         isActive: rest.isActive ?? true,
+        commissionPct: commissionPct ?? 0,
       },
     });
     await this.branches.copyScheduleToWorker(tenantId, worker.id);

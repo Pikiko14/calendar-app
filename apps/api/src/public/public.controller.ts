@@ -194,6 +194,61 @@ export class PublicController {
   }
 
   @Public()
+  @Get(':slug/reviews')
+  async listReviews(@Param('slug') slug: string) {
+    const tenant = await this.requireTenant(slug);
+    const [summary, items] = await Promise.all([
+      this.reviews.getTenantRating(tenant.id),
+      this.reviews.listPublic(tenant.id),
+    ]);
+    return { summary, items };
+  }
+
+  @Public()
+  @Post(':slug/waitlist')
+  async waitlist(
+    @Param('slug') slug: string,
+    @Body()
+    body: {
+      firstName: string;
+      lastName?: string;
+      phone: string;
+      serviceId: string;
+      workerId?: string;
+      preferredDate?: string;
+      preferredTime?: string;
+    },
+  ) {
+    const tenant = await this.requireTenant(slug);
+    const client = await this.prisma.client.upsert({
+      where: { tenantId_phone: { tenantId: tenant.id, phone: body.phone } },
+      create: {
+        tenantId: tenant.id,
+        firstName: body.firstName,
+        lastName: body.lastName || '',
+        phone: body.phone,
+        whatsapp: body.phone,
+      },
+      update: {
+        firstName: body.firstName,
+        lastName: body.lastName || undefined,
+      },
+    });
+    return this.prisma.waitlistEntry.create({
+      data: {
+        tenantId: tenant.id,
+        clientId: client.id,
+        serviceId: body.serviceId,
+        workerId: body.workerId,
+        preferredDate: body.preferredDate
+          ? new Date(body.preferredDate)
+          : undefined,
+        preferredTime: body.preferredTime,
+      },
+    });
+  }
+
+  @Public()
   @Get(':slug/availability')
   async availability(
     @Param('slug') slug: string,

@@ -97,8 +97,6 @@ export class ReviewsService {
       where: { OR: [{ tenantId: '' }, { workerId: '' }] },
       include: { appointment: { select: { tenantId: true, workerId: true } } },
     });
-    // Reviews sin relación válida: las que fallen el migrate se rellenan por SQL.
-    // Aquí recalculamos todos los workers con reviews.
     const workerIds = await this.prisma.review.findMany({
       select: { workerId: true },
       distinct: ['workerId'],
@@ -107,5 +105,38 @@ export class ReviewsService {
       await this.recalculateWorkerRating(workerId);
     }
     return { workersUpdated: workerIds.length, orphansChecked: orphan.length };
+  }
+
+  listPublic(tenantId: string, take = 12) {
+    return this.prisma.review.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        rating: true,
+        comment: true,
+        createdAt: true,
+        client: { select: { firstName: true, lastName: true } },
+        worker: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+  }
+
+  listAdmin(tenantId: string) {
+    return this.prisma.review.findMany({
+      where: { tenantId },
+      include: {
+        client: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        worker: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+        appointment: { select: { id: true, startAt: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
   }
 }

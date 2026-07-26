@@ -1,17 +1,25 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
+  forwardRef,
 } from '@nestjs/common';
 import {
+  PaymentProvider,
+  PaymentStatus,
   SubscriptionStatus,
   TenantPlan,
   TenantStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  EpaycoService,
+  type EpaycoConfirmation,
+} from '../payments/epayco.service';
 
 export const PLAN_SEEDS = [
   {
@@ -90,7 +98,11 @@ function planCodeToTenantPlan(code: string): TenantPlan {
 export class PlansService implements OnModuleInit {
   private readonly logger = new Logger(PlansService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => EpaycoService))
+    private readonly epayco: EpaycoService,
+  ) {}
 
   async onModuleInit() {
     await this.ensurePlans();
@@ -210,7 +222,12 @@ export class PlansService implements OnModuleInit {
   async activateSubscription(
     tenantId: string,
     planCodeOrId: string,
-    opts?: { notes?: string; endsAt?: Date | null },
+    opts?: {
+      notes?: string;
+      endsAt?: Date | null;
+      stripeCustomerId?: string | null;
+      stripeSubscriptionId?: string | null;
+    },
   ) {
     let plan = await this.prisma.plan.findFirst({
       where: {
@@ -247,6 +264,8 @@ export class PlansService implements OnModuleInit {
         startsAt: new Date(),
         endsAt: opts?.endsAt ?? null,
         notes: opts?.notes,
+        stripeCustomerId: opts?.stripeCustomerId ?? undefined,
+        stripeSubscriptionId: opts?.stripeSubscriptionId ?? undefined,
       },
       update: {
         planId: plan.id,
@@ -254,6 +273,12 @@ export class PlansService implements OnModuleInit {
         startsAt: new Date(),
         endsAt: opts?.endsAt ?? null,
         notes: opts?.notes,
+        ...(opts?.stripeCustomerId !== undefined
+          ? { stripeCustomerId: opts.stripeCustomerId }
+          : {}),
+        ...(opts?.stripeSubscriptionId !== undefined
+          ? { stripeSubscriptionId: opts.stripeSubscriptionId }
+          : {}),
       },
       include: { plan: true },
     });
@@ -304,7 +329,7 @@ export class PlansService implements OnModuleInit {
     };
   }
 
-  async selectPlan(tenantId: string, planId: string) {
+  private async assertPlanFitsUsage(tenantId: string, planId: string) {
     const plan = await this.prisma.plan.findFirst({
       where: { id: planId, isActive: true },
     });
@@ -326,17 +351,284 @@ export class PlansService implements OnModuleInit {
         `No puedes elegir ${plan.name}: tienes ${usage.usage.branches} sedes y el plan permite ${plan.maxBranches}.`,
       );
     }
+    return plan;
+  }
 
-    const sub = await this.activateSubscription(tenantId, plan.id, {
-      notes: 'Activada desde la app',
+  /**
+   * Inicia checkout de suscripción con ePayco Smart Checkout.
+   * Sin llaves → modo demo (confirmar manualmente).
+   */
+  async checkout(tenantId: string, planId: string) {
+    const plan = await this.assertPlanFitsUsage(tenantId, planId);
+    const amount = Number(plan.priceMonthly);
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: { name: true, email: true, currency: true },
     });
+    const currency = (tenant.currency || 'COP').toUpperCase();
+    const ready = this.epayco.isConfigured();
+
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        planId: plan.id,
+        plan: planCodeToTenantPlan(plan.code),
+      },
+    });
+
+    await this.prisma.subscription.upsert({
+      where: { tenantId },
+      create: {
+        tenantId,
+        planId: plan.id,
+        status: SubscriptionStatus.PAST_DUE,
+        startsAt: new Date(),
+        notes: ready
+          ? 'Checkout ePayco pendiente'
+          : 'Checkout demo pendiente (sin llaves ePayco)',
+      },
+      update: {
+        planId: plan.id,
+        status: SubscriptionStatus.PAST_DUE,
+        notes: ready
+          ? 'Checkout ePayco pendiente'
+          : 'Checkout demo pendiente (sin llaves ePayco)',
+      },
+    });
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        tenantId,
+        amount,
+        currency,
+        status: PaymentStatus.PENDING,
+        method: 'EPAYCO',
+        provider: PaymentProvider.EPAYCO,
+        metadata: {
+          type: 'subscription',
+          planId: plan.id,
+          planCode: plan.code,
+          planName: plan.name,
+        },
+      },
+    });
+
+    if (!ready) {
+      const publicBase = this.epayco.appUrl();
+      return {
+        paymentId: payment.id,
+        amount,
+        currency,
+        provider: 'EPAYCO' as const,
+        plan: { id: plan.id, code: plan.code, name: plan.name },
+        checkoutUrl: `${publicBase}/app/settings?tab=planes&pay=${payment.id}`,
+        sessionId: null as string | null,
+        publicKey: null as string | null,
+        test: true,
+        demoMode: true,
+        configured: false,
+        message:
+          'ePayco aún sin credenciales. Agrega EPAYCO_PUBLIC_KEY, EPAYCO_PRIVATE_KEY, EPAYCO_P_CUST_ID_CLIENTE y EPAYCO_P_KEY. Mientras tanto puedes simular el pago.',
+      };
+    }
+
+    const invoice = `BB-${payment.id.slice(-10).toUpperCase()}`;
+    const session = await this.epayco.createCheckoutSession({
+      tenantId,
+      tenantName: tenant.name,
+      tenantEmail: tenant.email,
+      planId: plan.id,
+      planCode: plan.code,
+      planName: plan.name,
+      planDescription: plan.description,
+      amount,
+      currency,
+      paymentId: payment.id,
+      invoice,
+    });
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        providerRef: session.sessionId,
+        metadata: {
+          type: 'subscription',
+          planId: plan.id,
+          planCode: plan.code,
+          planName: plan.name,
+          epaycoSessionId: session.sessionId,
+          invoice,
+        },
+      },
+    });
+
+    return {
+      paymentId: payment.id,
+      amount,
+      currency,
+      provider: 'EPAYCO' as const,
+      plan: { id: plan.id, code: plan.code, name: plan.name },
+      checkoutUrl: null as string | null,
+      sessionId: session.sessionId,
+      publicKey: session.publicKey,
+      test: session.test,
+      demoMode: false,
+      configured: true,
+      message: 'Abre el checkout ePayco con sessionId + publicKey.',
+    };
+  }
+
+  async confirmCheckout(tenantId: string, paymentId: string) {
+    if (this.epayco.isConfigured()) {
+      throw new BadRequestException(
+        'Con ePayco configurado la activación ocurre por URL de confirmación o sync de ref_payco.',
+      );
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, tenantId },
+    });
+    if (!payment) throw new NotFoundException('Pago no encontrado.');
+    const meta = (payment.metadata || {}) as { type?: string; planId?: string };
+    if (meta.type !== 'subscription' || !meta.planId) {
+      throw new BadRequestException('Este pago no es de suscripción.');
+    }
+    if (payment.status === PaymentStatus.PAID) {
+      return this.getUsage(tenantId);
+    }
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: PaymentStatus.PAID, paidAt: new Date() },
+    });
+
+    const sub = await this.activateSubscription(tenantId, meta.planId, {
+      notes: `Demo / sin ePayco (${payment.id})`,
+      endsAt: new Date(Date.now() + 30 * 86400000),
+    });
+
     return {
       ...sub,
+      payment: { id: payment.id, status: 'PAID', amount: payment.amount },
       tenant: await this.prisma.tenant.findUnique({
         where: { id: tenantId },
         include: { planRef: true },
       }),
     };
+  }
+
+  /** Tras response URL de ePayco (?ref_payco=...). */
+  async syncEpaycoRef(tenantId: string, refPayco: string) {
+    if (!this.epayco.isConfigured()) {
+      throw new BadRequestException('ePayco no está configurado.');
+    }
+    const data = await this.epayco.getTransactionByRef(refPayco);
+    const extra2 = String(data.x_extra2 || '');
+    if (extra2 && extra2 !== tenantId) {
+      throw new ForbiddenException('La transacción no pertenece a este negocio.');
+    }
+    await this.applyEpaycoConfirmation(data, { requireSignature: false });
+    return this.getUsage(tenantId);
+  }
+
+  async handleEpaycoConfirmation(data: EpaycoConfirmation) {
+    await this.applyEpaycoConfirmation(data, { requireSignature: true });
+  }
+
+  private async applyEpaycoConfirmation(
+    data: EpaycoConfirmation,
+    opts: { requireSignature: boolean },
+  ) {
+    if (opts.requireSignature) {
+      if (!this.epayco.validateSignature(data)) {
+        this.logger.warn(
+          `Firma ePayco inválida ref=${data.x_ref_payco} tx=${data.x_transaction_id}`,
+        );
+        throw new BadRequestException('Firma ePayco inválida.');
+      }
+    }
+
+    const paymentId = String(data.x_extra1 || '');
+    const tenantId = String(data.x_extra2 || '');
+    const planId = String(data.x_extra3 || '');
+    const ref = String(data.x_ref_payco || data.ref_payco || '');
+
+    if (!this.epayco.isApproved(data)) {
+      this.logger.log(
+        `ePayco no aprobada ref=${ref} response=${data.x_response} cod=${data.x_cod_response}`,
+      );
+      if (paymentId) {
+        await this.prisma.payment.updateMany({
+          where: { id: paymentId, status: PaymentStatus.PENDING },
+          data: {
+            status: PaymentStatus.FAILED,
+            providerRef: ref || undefined,
+            metadata: JSON.parse(
+              JSON.stringify({
+                type: 'subscription',
+                epayco: data,
+              }),
+            ),
+          },
+        });
+      }
+      return;
+    }
+
+    let payment = paymentId
+      ? await this.prisma.payment.findFirst({ where: { id: paymentId } })
+      : null;
+    if (!payment && ref) {
+      payment = await this.prisma.payment.findFirst({
+        where: { providerRef: ref },
+      });
+    }
+    if (!payment && data.x_id_invoice) {
+      payment = await this.prisma.payment.findFirst({
+        where: {
+          metadata: { path: ['invoice'], equals: String(data.x_id_invoice) },
+        },
+      });
+    }
+
+    const resolvedTenantId = tenantId || payment?.tenantId;
+    const meta = (payment?.metadata || {}) as { planId?: string; type?: string };
+    const resolvedPlanId = planId || meta.planId;
+    if (!resolvedTenantId || !resolvedPlanId) {
+      this.logger.warn(`Confirmación ePayco incompleta ref=${ref}`);
+      return;
+    }
+
+    if (payment?.status === PaymentStatus.PAID) {
+      return;
+    }
+
+    if (payment) {
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: PaymentStatus.PAID,
+          paidAt: new Date(),
+          providerRef: ref || payment.providerRef,
+          method: 'EPAYCO',
+          provider: PaymentProvider.EPAYCO,
+        },
+      });
+    }
+
+    await this.activateSubscription(resolvedTenantId, resolvedPlanId, {
+      notes: `ePayco ${ref || data.x_transaction_id}`,
+      endsAt: new Date(Date.now() + 30 * 86400000),
+    });
+
+    this.logger.log(
+      `Suscripción activada tenant=${resolvedTenantId} plan=${resolvedPlanId} ref=${ref}`,
+    );
+  }
+
+  /** Compat: inicia checkout (ya no activa sin pago). */
+  async selectPlan(tenantId: string, planId: string) {
+    return this.checkout(tenantId, planId);
   }
 
   async assertCanCreateWorker(tenantId: string) {

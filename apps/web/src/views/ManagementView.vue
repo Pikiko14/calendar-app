@@ -46,6 +46,7 @@ type WorkerRow = {
   phone?: string | null
   ratingAvg?: number
   ratingCount?: number
+  commissionPct?: string | number
   user?: { id: string; email: string; isActive: boolean } | null
   schedules?: Array<{
     dayOfWeek: string
@@ -69,6 +70,7 @@ const photoPreview = ref('')
 const scheduleWorker = ref<WorkerRow | null>(null)
 const catalogSpecialties = ref<Specialty[]>([])
 const selectedSpecialtyIds = ref<string[]>([])
+const commissionPct = ref(0)
 
 const kind = computed(() =>
   route.name === 'services' ? 'Servicios' : route.name === 'workers' ? 'Equipo' : 'Clientes',
@@ -139,6 +141,7 @@ function openCreate() {
   photoFile.value = null
   photoPreview.value = ''
   selectedSpecialtyIds.value = []
+  commissionPct.value = 0
   resetForm({
     values: {
       name: '',
@@ -182,6 +185,7 @@ function openEditWorker(row: WorkerRow) {
   selectedSpecialtyIds.value =
     row.specialtyLinks?.map((l) => l.specialtyId || l.specialty?.id).filter(Boolean) ||
     []
+  commissionPct.value = Number(row.commissionPct || 0)
   resetForm({
     values: {
       firstName: row.firstName,
@@ -276,6 +280,7 @@ const onSubmit = handleSubmit(async (form) => {
         phone: form.phone || undefined,
         email: form.email || undefined,
         isActive: Boolean(form.isActive),
+        commissionPct: Number(commissionPct.value) || 0,
       }
       if (form.password) payload.password = form.password
       let workerId = editingId.value
@@ -780,6 +785,16 @@ onMounted(load)
               </div>
             </div>
             <FormField name="phone" label="Teléfono" type="tel" placeholder="WhatsApp / teléfono" />
+            <label class="block text-sm">
+              <span class="text-ink-muted">Comisión (%)</span>
+              <input
+                v-model.number="commissionPct"
+                type="number"
+                min="0"
+                max="100"
+                class="mt-1 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-ink-soft"
+              />
+            </label>
             <FormField
               name="email"
               label="Email (acceso al panel)"

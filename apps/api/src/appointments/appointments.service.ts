@@ -390,7 +390,7 @@ export class AppointmentsService {
     return appointment;
   }
 
-  async list(tenantId: string, user?: JwtPayload) {
+  async list(tenantId: string, user?: JwtPayload, branchId?: string) {
     let workerId: string | undefined;
     if (user?.role === UserRole.WORKER) {
       const linked = await this.prisma.worker.findFirst({
@@ -406,6 +406,7 @@ export class AppointmentsService {
         tenantId,
         deletedAt: null,
         ...(workerId ? { workerId } : {}),
+        ...(branchId ? { branchId } : {}),
       },
       include: { client: true, worker: true, service: true, branch: true },
       orderBy: { startAt: 'asc' },

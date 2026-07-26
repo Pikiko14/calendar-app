@@ -12,6 +12,19 @@ import { ReportsService } from './reports.service';
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
+  @Get('overview')
+  overview(
+    @TenantId() tenantId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    const fromDate = from
+      ? new Date(from)
+      : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const toDate = to ? new Date(to) : new Date();
+    return this.reports.overview(tenantId, fromDate, toDate);
+  }
+
   @Get('revenue')
   revenue(
     @TenantId() tenantId: string,

@@ -536,15 +536,39 @@ export class WhatsappService {
             menuActions(),
           );
         }
-        const a = upcoming[0];
+        if (upcoming.length === 1) {
+          const a = upcoming[0];
+          return this.setState(
+            convoId,
+            WhatsAppConversationState.RESCHEDULE,
+            {
+              appointmentId: a.id,
+              serviceId: a.serviceId,
+              workerId: a.workerId,
+            },
+            this.withNav(
+              `Reprogramaremos: ${a.service.name} el ${dayjs(a.startAt).format('DD/MM HH:mm')}.\n¿Qué día prefieres? (YYYY-MM-DD)`,
+            ),
+            navActions(),
+          );
+        }
+        const list = upcoming
+          .map(
+            (a, i) =>
+              `${i + 1}. ${dayjs(a.startAt).format('DD/MM HH:mm')} — ${a.service.name} con ${a.worker.firstName}`,
+          )
+          .join('\n');
         return this.setState(
           convoId,
           WhatsAppConversationState.RESCHEDULE,
-          { appointmentId: a.id, serviceId: a.serviceId, workerId: a.workerId },
-          this.withNav(
-            `Reprogramaremos: ${a.service.name} el ${dayjs(a.startAt).format('DD/MM HH:mm')}.\n¿Qué día prefieres? (YYYY-MM-DD)`,
+          { appointmentIds: upcoming.map((a) => a.id) },
+          this.withNav(`¿Cuál cita deseas reprogramar?\n\n${list}`),
+          choiceActions(
+            upcoming.map(
+              (a) =>
+                `${dayjs(a.startAt).format('DD/MM HH:mm')} · ${a.service.name}`,
+            ),
           ),
-          navActions(),
         );
       }
       case '5': {
@@ -945,6 +969,48 @@ export class WhatsappService {
     ctx: ConvoContext,
     text: string,
   ) {
+    if (!ctx.appointmentId && ctx.appointmentIds?.length) {
+      const idx = this.parseChoice(text) - 1;
+      const id = ctx.appointmentIds[idx];
+      if (!id) {
+        return this.setState(
+          convoId,
+          WhatsAppConversationState.RESCHEDULE,
+          ctx,
+          this.withNav('Opción inválida.'),
+          choiceActions(
+            ctx.appointmentIds.map((_, i) => `Cita ${i + 1}`),
+          ),
+        );
+      }
+      const appt = await this.prisma.appointment.findFirst({
+        where: { id, tenantId, clientId },
+        include: { service: true },
+      });
+      if (!appt) {
+        return this.setState(
+          convoId,
+          WhatsAppConversationState.MENU,
+          {},
+          'Cita no encontrada.',
+          menuActions(),
+        );
+      }
+      return this.setState(
+        convoId,
+        WhatsAppConversationState.RESCHEDULE,
+        {
+          appointmentId: appt.id,
+          serviceId: appt.serviceId,
+          workerId: appt.workerId,
+        },
+        this.withNav(
+          `Reprogramaremos: ${appt.service.name} el ${dayjs(appt.startAt).format('DD/MM HH:mm')}.\n¿Qué día prefieres? (YYYY-MM-DD)`,
+        ),
+        navActions(),
+      );
+    }
+
     if (!ctx.appointmentId) {
       return this.setState(convoId, WhatsAppConversationState.MENU, {}, 'Sesión expirada. Escribe MENU.');
     }

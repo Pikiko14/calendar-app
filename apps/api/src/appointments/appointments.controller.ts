@@ -25,8 +25,12 @@ export class AppointmentsController {
   constructor(private s: AppointmentsService) {}
 
   @Get()
-  list(@TenantId() t: string, @CurrentUser() user: JwtPayload) {
-    return this.s.list(t, user);
+  list(
+    @TenantId() t: string,
+    @CurrentUser() user: JwtPayload,
+    @Query('branchId') branchId?: string,
+  ) {
+    return this.s.list(t, user, branchId);
   }
 
   @Get('availability')

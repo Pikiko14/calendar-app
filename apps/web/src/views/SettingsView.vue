@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api, apiUpload, mediaUrl } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
 import { applyBrandTheme } from '@/lib/brand'
@@ -30,6 +30,7 @@ const tabs: Array<{ id: SettingsTab; label: string }> = [
 const activeTab = ref<SettingsTab>('marca')
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 const locationPickerRef = ref<{ refreshMapSize: () => void } | null>(null)
 
 const SETTINGS_TABS: SettingsTab[] = [
@@ -189,30 +190,132 @@ async function refreshPlans() {
   }
 }
 
+const pendingPaymentId = ref<string | null>(null)
+
 async function selectPlan(planId: string) {
   if (planCurrent.value?.plan?.id === planId && planCurrent.value.subscriptionActive) return
   const target = plans.value.find((p) => p.id === planId)
   const ok = await confirmAction({
-    title: `¿Activar plan ${target?.name || ''}?`,
+    title: `¿Suscribirte a ${target?.name || ''}?`,
     text: target
-      ? `${formatCop(target.priceMonthly)} / mes. Se activa la suscripción de inmediato.`
-      : 'Se activa la suscripción de inmediato.',
-    confirmText: 'Activar plan',
+      ? `${formatCop(target.priceMonthly)} / mes con ePayco. Se abrirá el checkout seguro.`
+      : 'Se abrirá el checkout de ePayco.',
+    confirmText: 'Ir a pagar',
   })
   if (!ok) return
   planBusy.value = true
   try {
-    await api('/plans/select', {
+    const checkout = await api<{
+      paymentId: string
+      demoMode?: boolean
+      amount: number
+      provider: string
+      checkoutUrl?: string | null
+      sessionId?: string | null
+      publicKey?: string | null
+      test?: boolean
+      configured?: boolean
+    }>('/plans/checkout', {
       method: 'POST',
       body: JSON.stringify({ planId }),
     })
+    pendingPaymentId.value = checkout.paymentId
+
+    if (checkout.sessionId && checkout.publicKey && !checkout.demoMode) {
+      const { openEpaycoCheckout } = await import('@/lib/epayco')
+      await openEpaycoCheckout({
+        publicKey: checkout.publicKey,
+        sessionId: checkout.sessionId,
+        test: checkout.test !== false,
+      })
+      await toastSuccess('Checkout ePayco abierto')
+      return
+    }
+
+    if (checkout.checkoutUrl && !checkout.demoMode) {
+      window.location.href = checkout.checkoutUrl
+      return
+    }
+
+    if (checkout.demoMode) {
+      const payOk = await confirmAction({
+        title: 'ePayco aún sin credenciales',
+        text: `Agrega las llaves EPAYCO_* en .env. Por ahora puedes simular el cobro de ${formatCop(checkout.amount)}.`,
+        confirmText: 'Simular pago y activar',
+      })
+      if (payOk) {
+        await api('/plans/confirm-payment', {
+          method: 'POST',
+          body: JSON.stringify({ paymentId: checkout.paymentId }),
+        })
+        await auth.fetchMe()
+        await refreshPlans()
+        pendingPaymentId.value = null
+        await toastSuccess('Suscripción activada (demo)')
+      } else {
+        await toastSuccess('Pago pendiente. Confírmalo cuando estés listo.')
+        await refreshPlans()
+      }
+    }
+  } catch (e) {
+    await toastError('No se pudo iniciar el pago', e instanceof Error ? e.message : 'Error')
+  } finally {
+    planBusy.value = false
+  }
+}
+
+async function confirmPendingPayment() {
+  if (!pendingPaymentId.value) return
+  planBusy.value = true
+  try {
+    await api('/plans/confirm-payment', {
+      method: 'POST',
+      body: JSON.stringify({ paymentId: pendingPaymentId.value }),
+    })
+    pendingPaymentId.value = null
     await auth.fetchMe()
     await refreshPlans()
     await toastSuccess('Suscripción activada')
   } catch (e) {
-    await toastError('No se pudo activar el plan', e instanceof Error ? e.message : 'Error')
+    await toastError('Pago', e instanceof Error ? e.message : 'Error')
   } finally {
     planBusy.value = false
+  }
+}
+
+async function syncEpaycoReturn() {
+  const status = String(route.query.epayco || '')
+  const refPayco = String(route.query.ref_payco || route.query.refPayco || '')
+  if (status === 'cancel') {
+    await toastError('Pago cancelado', 'Puedes intentar de nuevo cuando quieras.')
+    return
+  }
+  if (!refPayco && status !== 'return') return
+  if (!refPayco) return
+  planBusy.value = true
+  try {
+    await api('/plans/epayco/sync', {
+      method: 'POST',
+      body: JSON.stringify({ refPayco }),
+    })
+    await auth.fetchMe()
+    await refreshPlans()
+    pendingPaymentId.value = null
+    await toastSuccess('¡Pago recibido! Suscripción activa.')
+  } catch (e) {
+    await toastError(
+      'Pago en proceso',
+      e instanceof Error
+        ? e.message
+        : 'Si ya pagaste, espera unos segundos y recarga.',
+    )
+  } finally {
+    planBusy.value = false
+    const q = { ...route.query } as Record<string, string>
+    delete q.epayco
+    delete q.ref_payco
+    delete q.refPayco
+    await router.replace({ query: { ...q, tab: 'planes' } })
   }
 }
 
@@ -603,7 +706,9 @@ async function applyToTeam() {
 
 onMounted(() => {
   applyTabFromQuery()
-  void load()
+  const pay = String(route.query.pay || '')
+  if (pay) pendingPaymentId.value = pay
+  void load().then(() => syncEpaycoReturn())
 })
 onUnmounted(stopWaPoll)
 
@@ -1009,8 +1114,11 @@ const showSaveBar = computed(() =>
             <div>
               <h2 class="font-display text-xl font-bold">Planes</h2>
               <p class="mt-1 text-sm text-ink-muted">
-                Elige el plan según el tamaño de tu negocio. Sin suscripción activa no puedes usar el
-                resto de la app.
+                Cobro mensual con <b>ePayco</b>. Sin llaves aún: puedes simular el pago.
+                Agrega <code class="text-xs">EPAYCO_PUBLIC_KEY</code>,
+                <code class="text-xs">EPAYCO_PRIVATE_KEY</code>,
+                <code class="text-xs">EPAYCO_P_CUST_ID_CLIENTE</code> y
+                <code class="text-xs">EPAYCO_P_KEY</code>.
               </p>
             </div>
             <div
@@ -1034,6 +1142,15 @@ const showSaveBar = computed(() =>
             class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
           >
             Activa un plan para desbloquear calendario, equipo, servicios y WhatsApp.
+            <button
+              v-if="pendingPaymentId"
+              type="button"
+              class="ml-2 font-semibold underline"
+              :disabled="planBusy"
+              @click="confirmPendingPayment"
+            >
+              Confirmar pago pendiente
+            </button>
           </div>
 
           <div

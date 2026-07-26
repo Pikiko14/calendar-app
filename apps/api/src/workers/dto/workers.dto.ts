@@ -3,8 +3,11 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -48,10 +51,16 @@ export class WorkerDto {
   @IsBoolean()
   isActive?: boolean;
 
-  /** Acceso al panel (calendario). Requiere email + password al crear acceso. */
   @IsOptional()
   @IsString()
   password?: string;
+
+  /** Comisión % sobre ventas al completar citas. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  commissionPct?: number;
 }
 
 export class UpdateWorkerDto {
@@ -92,6 +101,12 @@ export class UpdateWorkerDto {
   @IsOptional()
   @IsString()
   password?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  commissionPct?: number;
 }
 
 export class WorkerScheduleDto {

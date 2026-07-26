@@ -8,6 +8,22 @@ export default () => ({
   app: {
     corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173').split(','),
     url: process.env.APP_URL ?? 'http://localhost:5173',
+    apiUrl: process.env.API_URL ?? 'http://localhost:3000',
+  },
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY ?? '',
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+  },
+  epayco: {
+    publicKey: process.env.EPAYCO_PUBLIC_KEY ?? '',
+    privateKey: process.env.EPAYCO_PRIVATE_KEY ?? '',
+    customerId: process.env.EPAYCO_P_CUST_ID_CLIENTE ?? '',
+    pKey: process.env.EPAYCO_P_KEY ?? '',
+    test: process.env.EPAYCO_TEST ?? 'true',
+  },
+  payments: {
+    provider: (process.env.PAYMENT_PROVIDER ?? 'EPAYCO').toUpperCase(),
   },
   whatsapp: {
     enabled: (process.env.WHATSAPP_ENABLED ?? 'true').toLowerCase() !== 'false',

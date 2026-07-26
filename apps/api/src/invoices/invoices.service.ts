@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import {
   InvoiceStatus,
@@ -11,6 +13,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsappBaileysService } from '../whatsapp/whatsapp-baileys.service';
 import {
   CreateFromAppointmentDto,
   CreateInvoiceDto,
@@ -19,7 +22,11 @@ import {
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => WhatsappBaileysService))
+    private readonly baileys: WhatsappBaileysService,
+  ) {}
 
   list(tenantId: string, status?: InvoiceStatus) {
     return this.prisma.invoice.findMany({
@@ -318,5 +325,62 @@ export class InvoicesService {
       cancelled,
       paidTotal: Number(paidAgg._sum.total || 0),
     };
+  }
+
+  async htmlDocument(tenantId: string, id: string) {
+    const invoice = await this.one(tenantId, id);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, address: true, city: true, phone: true },
+    });
+    const money = (n: unknown) =>
+      new Intl.NumberFormat('es-CO', {
+        style: 'currency',
+        currency: invoice.currency || 'COP',
+        maximumFractionDigits: 0,
+      }).format(Number(n || 0));
+    const clientName = invoice.client
+      ? `${invoice.client.firstName} ${invoice.client.lastName}`.trim()
+      : 'Cliente';
+    const rows = (invoice.items || [])
+      .map(
+        (it) =>
+          `<tr><td>${it.description}</td><td>${it.quantity}</td><td>${money(it.unitPrice)}</td><td>${money(it.total)}</td></tr>`,
+      )
+      .join('');
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>${invoice.number}</title>
+<style>body{font-family:system-ui,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{border-bottom:1px solid #e5e7eb;padding:8px;text-align:left}h1{margin:0}</style></head>
+<body>
+<h1>${tenant?.name || 'BeautyBook'}</h1>
+<p>${[tenant?.address, tenant?.city, tenant?.phone].filter(Boolean).join(' · ')}</p>
+<h2>Factura ${invoice.number}</h2>
+<p>Cliente: ${clientName}<br/>Fecha: ${invoice.issuedAt.toISOString().slice(0, 10)}<br/>Estado: ${invoice.status}</p>
+<table><thead><tr><th>Descripción</th><th>Cant.</th><th>P. unit</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
+<p><strong>Subtotal:</strong> ${money(invoice.subtotal)} · <strong>Impuesto:</strong> ${money(invoice.tax)} · <strong>Total:</strong> ${money(invoice.total)}</p>
+${invoice.notes ? `<p>Notas: ${invoice.notes}</p>` : ''}
+</body></html>`;
+  }
+
+  async sendWhatsApp(tenantId: string, id: string) {
+    const invoice = await this.one(tenantId, id);
+    const phone = invoice.client?.phone || invoice.client?.whatsapp;
+    if (!phone) {
+      throw new BadRequestException('El cliente no tiene teléfono/WhatsApp.');
+    }
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    const total = new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: invoice.currency || 'COP',
+      maximumFractionDigits: 0,
+    }).format(Number(invoice.total));
+    const lines = (invoice.items || [])
+      .map((it) => `• ${it.description} x${it.quantity}`)
+      .join('\n');
+    const text = `🧾 *${tenant?.name || 'BeautyBook'}*\nFactura *${invoice.number}*\nEstado: ${invoice.status}\n\n${lines}\n\n*Total: ${total}*\nGracias por tu visita.`;
+    await this.baileys.sendText(tenantId, phone, text);
+    return { ok: true, phone, invoiceId: invoice.id };
   }
 }

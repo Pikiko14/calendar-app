@@ -15,10 +15,13 @@ import {
   Power,
   ShoppingBag,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from '@lucide/vue'
 import { api } from '@/api/client'
 import { toastError, toastSuccess, confirmAction } from '@/lib/swal'
 import { printGiftCard } from '@/lib/printGiftCard'
+import GiftCardQr from '@/components/GiftCardQr.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
@@ -33,6 +36,20 @@ const packages = ref<any[]>([])
 const purchases = ref<any[]>([])
 const coupons = ref<any[]>([])
 const gifts = ref<any[]>([])
+const giftPage = ref(1)
+const GIFT_PAGE_SIZE = 4
+const giftTotalPages = computed(() =>
+  Math.max(1, Math.ceil(gifts.value.length / GIFT_PAGE_SIZE)),
+)
+const pagedGifts = computed(() => {
+  const start = (giftPage.value - 1) * GIFT_PAGE_SIZE
+  return gifts.value.slice(start, start + GIFT_PAGE_SIZE)
+})
+
+function clampGiftPage() {
+  if (giftPage.value > giftTotalPages.value) giftPage.value = giftTotalPages.value
+  if (giftPage.value < 1) giftPage.value = 1
+}
 const services = ref<Array<{ id: string; name: string }>>([])
 const clients = ref<Array<{ id: string; firstName: string; lastName: string }>>([])
 const busy = ref(false)
@@ -126,6 +143,7 @@ async function load() {
     gifts.value = g
     services.value = svc
     clients.value = cli
+    clampGiftPage()
   } catch (e) {
     await toastError('Crecimiento', e instanceof Error ? e.message : 'Error')
   }
@@ -360,6 +378,7 @@ async function createGift() {
       message: giftForm.value.message.trim() || null,
     }
     giftForm.value = { amount: 100000, code: '', clientId: '', message: '' }
+    giftPage.value = 1
     await toastSuccess(
       'Gift card facturada',
       created.invoice?.number
@@ -374,8 +393,8 @@ async function createGift() {
   }
 }
 
-function openGiftPrint(g: any) {
-  printGiftCard(
+async function openGiftPrint(g: any) {
+  await printGiftCard(
     {
       code: g.code,
       amount: g.initial ?? g.amount,
@@ -1014,12 +1033,23 @@ onMounted(load)
       </article>
 
       <div>
-        <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-          Tarjetas emitidas
-        </p>
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Tarjetas emitidas
+            <span v-if="gifts.length" class="font-normal normal-case tracking-normal text-ink-muted/80">
+              · {{ gifts.length }}
+            </span>
+          </p>
+          <p
+            v-if="gifts.length > GIFT_PAGE_SIZE"
+            class="text-xs text-ink-muted"
+          >
+            Página {{ giftPage }} de {{ giftTotalPages }}
+          </p>
+        </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <article
-            v-for="g in gifts"
+            v-for="g in pagedGifts"
             :key="g.id"
             class="relative overflow-hidden rounded-[24px] p-5 text-white shadow-soft"
             style="
@@ -1030,7 +1060,7 @@ onMounted(load)
           >
             <div class="pointer-events-none absolute inset-2.5 rounded-2xl border border-white/15" />
             <div class="relative">
-              <div class="flex items-start justify-between gap-2">
+              <div class="flex items-start justify-between gap-3">
                 <div>
                   <p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/70">
                     Gift card
@@ -1038,7 +1068,7 @@ onMounted(load)
                   <p class="mt-1 font-display text-2xl font-bold">{{ money(g.balance) }}</p>
                   <p class="text-xs text-white/70">de {{ money(g.initial) }}</p>
                 </div>
-                <Gift class="h-5 w-5 text-white/70" />
+                <GiftCardQr :code="g.code" :size="88" light />
               </div>
               <p v-if="g.client" class="mt-3 text-sm">
                 Para {{ g.client.firstName }} {{ g.client.lastName }}
@@ -1080,6 +1110,46 @@ onMounted(load)
             Aún no hay gift cards. Crea una y se verá aquí como tarjeta.
           </p>
         </div>
+
+        <div
+          v-if="gifts.length > GIFT_PAGE_SIZE"
+          class="mt-4 flex items-center justify-center gap-2"
+        >
+          <button
+            type="button"
+            class="btn-ghost !px-3 !py-2"
+            :disabled="giftPage <= 1"
+            @click="giftPage--"
+          >
+            <ChevronLeft class="h-4 w-4" />
+            Anterior
+          </button>
+          <div class="flex flex-wrap items-center gap-1">
+            <button
+              v-for="p in giftTotalPages"
+              :key="p"
+              type="button"
+              class="min-w-9 rounded-xl px-2.5 py-2 text-sm font-semibold transition"
+              :class="
+                p === giftPage
+                  ? 'bg-brand text-white'
+                  : 'bg-black/5 text-ink hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15'
+              "
+              @click="giftPage = p"
+            >
+              {{ p }}
+            </button>
+          </div>
+          <button
+            type="button"
+            class="btn-ghost !px-3 !py-2"
+            :disabled="giftPage >= giftTotalPages"
+            @click="giftPage++"
+          >
+            Siguiente
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </section>
 
@@ -1116,8 +1186,13 @@ onMounted(load)
                 'Un detalle especial para ti. Disfruta tu experiencia con nosotros.'
               }}
             </p>
-            <p class="mt-6 text-[10px] uppercase tracking-[0.2em] text-white/60">Código</p>
-            <p class="font-mono text-xl tracking-widest">{{ giftPreview.code }}</p>
+            <div class="mt-6 flex items-end justify-between gap-4">
+              <div>
+                <p class="text-[10px] uppercase tracking-[0.2em] text-white/60">Código</p>
+                <p class="font-mono text-xl tracking-widest">{{ giftPreview.code }}</p>
+              </div>
+              <GiftCardQr :code="giftPreview.code" :size="100" light />
+            </div>
           </div>
         </div>
         <div class="flex flex-wrap justify-end gap-2">

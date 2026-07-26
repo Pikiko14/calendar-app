@@ -1,17 +1,22 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class MarketingService {
+  private readonly logger = new Logger(MarketingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   listCoupons(tenantId: string) {
@@ -114,6 +119,23 @@ export class MarketingService {
             },
           },
         );
+
+        if (dto.clientId) {
+          void this.notifications
+            .notifyGiftCardIssued(tenantId, {
+              clientId: dto.clientId,
+              code: gift.code,
+              amount,
+              expiresAt: gift.expiresAt,
+              invoiceNumber: invoice.number,
+            })
+            .catch((e) =>
+              this.logger.warn(
+                `WhatsApp gift card no enviado: ${e instanceof Error ? e.message : e}`,
+              ),
+            );
+        }
+
         return {
           ...gift,
           invoice: {

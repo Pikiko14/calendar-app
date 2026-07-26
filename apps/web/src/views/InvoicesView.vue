@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import {
   FileText,
   Plus,
@@ -12,10 +12,13 @@ import {
   Check,
   Gift,
   Package,
+  ScanLine,
 } from '@lucide/vue'
 import { api, API_ORIGIN } from '@/api/client'
 import { confirmAction, toastSuccess, toastError } from '@/lib/swal'
 import { printInvoice } from '@/lib/printInvoice'
+import { parseGiftCardScan } from '@/lib/giftCardQr'
+import { canScanGiftCardQr, scanGiftCardQr } from '@/lib/scanGiftCardQr'
 import { useAuthStore } from '@/stores/auth'
 
 type InvoiceRow = {
@@ -91,6 +94,10 @@ const giftCheck = ref<{
   error?: string
 } | null>(null)
 const giftCheckBusy = ref(false)
+const scanningQr = ref(false)
+const scanVideo = ref<HTMLVideoElement | null>(null)
+let scanAbort: AbortController | null = null
+const supportsQrScan = canScanGiftCardQr()
 
 const selectedAppointment = computed(() =>
   appointments.value.find((a) => a.id === selectedAppointmentId.value) || null,
@@ -116,7 +123,10 @@ onMounted(() => {
   document.addEventListener('click', onDocClick)
   void load()
 })
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  stopQrScan()
+})
 
 function money(value: string | number | undefined | null) {
   const n = Number(value || 0)
@@ -328,6 +338,7 @@ async function sendWhatsApp(row: InvoiceRow) {
 }
 
 async function openPay(row: InvoiceRow) {
+  stopQrScan()
   payInvoice.value = row
   payMethod.value = 'CASH'
   payGiftCode.value = ''
@@ -335,7 +346,44 @@ async function openPay(row: InvoiceRow) {
   showPayModal.value = true
 }
 
+function stopQrScan() {
+  scanAbort?.abort()
+  scanAbort = null
+  scanningQr.value = false
+}
+
+async function startQrScan() {
+  if (!supportsQrScan) {
+    await toastError(
+      'Escaneo no disponible',
+      'Usa Chrome o Edge, o escribe / pega el código del QR.',
+    )
+    return
+  }
+  scanningQr.value = true
+  scanAbort = new AbortController()
+  await nextTick()
+  const video = scanVideo.value
+  if (!video) {
+    scanningQr.value = false
+    return
+  }
+  try {
+    const code = await scanGiftCardQr({ video, signal: scanAbort.signal })
+    payGiftCode.value = code
+    stopQrScan()
+    await validateGiftInput()
+  } catch (e) {
+    if (!scanAbort?.signal.aborted) {
+      await toastError('Escaneo', e instanceof Error ? e.message : 'No se pudo escanear')
+    }
+    stopQrScan()
+  }
+}
+
 async function validateGiftInput() {
+  const parsed = parseGiftCardScan(payGiftCode.value) || payGiftCode.value.trim()
+  if (parsed) payGiftCode.value = parsed
   const code = payGiftCode.value.trim()
   giftCheck.value = null
   if (!code) return
@@ -368,6 +416,9 @@ async function validateGiftInput() {
 
 async function confirmPay() {
   if (!payInvoice.value) return
+  stopQrScan()
+  const parsed = parseGiftCardScan(payGiftCode.value)
+  if (parsed) payGiftCode.value = parsed
   if (payGiftCode.value.trim() && giftCheck.value && giftCheck.value.valid === false) {
     await toastError('Gift card', giftCheck.value.error || 'Código inválido')
     return
@@ -410,6 +461,11 @@ async function confirmPay() {
   } finally {
     busy.value = false
   }
+}
+
+function closePayModal() {
+  stopQrScan()
+  showPayModal.value = false
 }
 
 async function markPaid(row: InvoiceRow) {
@@ -783,12 +839,12 @@ async function openDetail(row: InvoiceRow) {
     <div
       v-if="showPayModal && payInvoice"
       class="fixed inset-0 z-[100] flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
-      @click.self="showPayModal = false"
+      @click.self="closePayModal"
     >
       <div class="surface w-full max-w-md p-6 shadow-lift">
         <h2 class="font-display text-xl font-bold">Cobrar {{ payInvoice.number }}</h2>
         <p class="mt-1 text-sm text-ink-muted">
-          Total <b>{{ money(payInvoice.total) }}</b>. Puedes aplicar una gift card.
+          Total <b>{{ money(payInvoice.total) }}</b>. Puedes aplicar una gift card (código o QR).
         </p>
 
         <label class="mt-5 block text-sm">
@@ -805,7 +861,7 @@ async function openDetail(row: InvoiceRow) {
           <div class="flex gap-2">
             <input
               v-model="payGiftCode"
-              placeholder="Código"
+              placeholder="Código o BBGC:…"
               class="input-field !rounded-xl !py-3 uppercase"
               @blur="validateGiftInput"
             />
@@ -817,8 +873,26 @@ async function openDetail(row: InvoiceRow) {
             >
               Validar
             </button>
+            <button
+              v-if="supportsQrScan"
+              type="button"
+              class="btn-ghost !px-3 !py-2.5 shrink-0"
+              :disabled="scanningQr"
+              title="Escanear QR"
+              @click="scanningQr ? stopQrScan() : startQrScan()"
+            >
+              <ScanLine class="h-4 w-4" />
+            </button>
           </div>
         </label>
+
+        <div v-if="scanningQr" class="mt-3 overflow-hidden rounded-xl bg-black">
+          <video ref="scanVideo" class="aspect-video w-full object-cover" playsinline muted />
+          <div class="flex items-center justify-between gap-2 px-3 py-2 text-xs text-white">
+            <span>Apunta al QR de la gift card…</span>
+            <button type="button" class="font-semibold underline" @click="stopQrScan">Cancelar</button>
+          </div>
+        </div>
 
         <p
           v-if="giftCheck?.valid"
@@ -840,7 +914,7 @@ async function openDetail(row: InvoiceRow) {
         </p>
 
         <div class="mt-6 flex justify-end gap-2">
-          <button type="button" class="btn-ghost" @click="showPayModal = false">Cancelar</button>
+          <button type="button" class="btn-ghost" @click="closePayModal">Cancelar</button>
           <button type="button" class="btn-primary" :disabled="busy" @click="confirmPay">
             {{ busy ? 'Cobrando…' : 'Confirmar cobro' }}
           </button>

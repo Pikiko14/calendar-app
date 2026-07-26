@@ -1,17 +1,22 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PackagesService {
+  private readonly logger = new Logger(PackagesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   list(tenantId: string) {
@@ -151,6 +156,21 @@ export class PackagesService {
         clientId: dto.clientId,
       },
     });
+
+    void this.notifications
+      .notifyPackageSold(tenantId, {
+        clientId: dto.clientId,
+        packageName: pkg.name,
+        sessions: pkg.sessions,
+        amount,
+        expiresAt: purchase.expiresAt,
+        invoiceNumber: invoice.number,
+      })
+      .catch((e) =>
+        this.logger.warn(
+          `WhatsApp paquete no enviado: ${e instanceof Error ? e.message : e}`,
+        ),
+      );
 
     return {
       ...purchase,

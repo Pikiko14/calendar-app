@@ -328,7 +328,10 @@ export class InvoicesService {
 
   /** Valida gift card: existe, activa, con saldo y no vencida. */
   async validateGiftCard(tenantId: string, code: string) {
-    const normalized = code.trim().toUpperCase();
+    let normalized = code.trim().toUpperCase();
+    if (normalized.startsWith('BBGC:')) {
+      normalized = normalized.slice(5).trim();
+    }
     if (!normalized) {
       throw new BadRequestException('Ingresa el código de la gift card.');
     }

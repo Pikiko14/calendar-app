@@ -585,4 +585,157 @@ export class NotificationsService {
       });
     }
   }
+
+  private money(amount: number, currency = 'COP') {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  }
+
+  /** Aviso al cliente cuando compra un paquete de visitas. */
+  async notifyPackageSold(
+    tenantId: string,
+    input: {
+      clientId: string;
+      packageName: string;
+      sessions: number;
+      amount: number;
+      expiresAt?: Date | null;
+      invoiceNumber?: string | null;
+    },
+  ) {
+    const [client, tenant] = await Promise.all([
+      this.prisma.client.findFirst({
+        where: { id: input.clientId, tenantId, deletedAt: null },
+        select: {
+          id: true,
+          firstName: true,
+          phone: true,
+          whatsapp: true,
+        },
+      }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, currency: true },
+      }),
+    ]);
+    if (!client) return null;
+
+    const rawPhone = client.whatsapp || client.phone;
+    if (!rawPhone) {
+      this.logger.warn(
+        `Sin teléfono para notificar venta de paquete a cliente ${client.id}`,
+      );
+      return null;
+    }
+    const phone = normalizePhone(rawPhone);
+    if (!phone) return null;
+
+    const currency = tenant?.currency || 'COP';
+    const expires = input.expiresAt
+      ? dayjs(input.expiresAt).format('DD/MM/YYYY')
+      : 'Sin vencimiento';
+    const body = [
+      `🎉 *${tenant?.name || 'BeautyBook'}*`,
+      '',
+      `Hola ${client.firstName}, compraste el paquete *${input.packageName}*.`,
+      '',
+      `• Visitas: ${input.sessions}`,
+      `• Vigencia: ${expires}`,
+      input.invoiceNumber ? `• Factura: ${input.invoiceNumber}` : null,
+      `• Total: ${this.money(input.amount, currency)}`,
+      '',
+      '¡Gracias! Agenda tu próxima cita cuando quieras.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return this.send(
+      tenantId,
+      NotificationChannel.WHATSAPP,
+      phone,
+      body,
+      'Paquete vendido',
+      {
+        type: 'package_sold',
+        clientId: client.id,
+        packageName: input.packageName,
+        invoiceNumber: input.invoiceNumber || null,
+      },
+    );
+  }
+
+  /** Aviso al cliente cuando se emite una gift card a su nombre. */
+  async notifyGiftCardIssued(
+    tenantId: string,
+    input: {
+      clientId: string;
+      code: string;
+      amount: number;
+      expiresAt?: Date | null;
+      invoiceNumber?: string | null;
+    },
+  ) {
+    const [client, tenant] = await Promise.all([
+      this.prisma.client.findFirst({
+        where: { id: input.clientId, tenantId, deletedAt: null },
+        select: {
+          id: true,
+          firstName: true,
+          phone: true,
+          whatsapp: true,
+        },
+      }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, currency: true },
+      }),
+    ]);
+    if (!client) return null;
+
+    const rawPhone = client.whatsapp || client.phone;
+    if (!rawPhone) {
+      this.logger.warn(
+        `Sin teléfono para notificar gift card a cliente ${client.id}`,
+      );
+      return null;
+    }
+    const phone = normalizePhone(rawPhone);
+    if (!phone) return null;
+
+    const currency = tenant?.currency || 'COP';
+    const expires = input.expiresAt
+      ? dayjs(input.expiresAt).format('DD/MM/YYYY')
+      : 'Sin vencimiento';
+    const body = [
+      `🎁 *${tenant?.name || 'BeautyBook'}*`,
+      '',
+      `Hola ${client.firstName}, tienes una gift card:`,
+      '',
+      `• Código: *${input.code}*`,
+      `• Valor: ${this.money(input.amount, currency)}`,
+      `• Vigencia: ${expires}`,
+      input.invoiceNumber ? `• Factura: ${input.invoiceNumber}` : null,
+      '',
+      'Preséntala en tu próxima visita o canjéala al pagar. ¡Disfrútala!',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return this.send(
+      tenantId,
+      NotificationChannel.WHATSAPP,
+      phone,
+      body,
+      'Gift card emitida',
+      {
+        type: 'gift_card_issued',
+        clientId: client.id,
+        code: input.code,
+        invoiceNumber: input.invoiceNumber || null,
+      },
+    );
+  }
 }

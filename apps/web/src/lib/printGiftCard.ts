@@ -1,4 +1,6 @@
-/** Imprime / muestra una gift card visual. */
+import { giftCardQrPayload, toGiftCardQrDataUrl } from '@/lib/giftCardQr'
+
+/** Imprime / muestra una gift card visual con QR escaneable. */
 
 export type PrintableGiftCard = {
   code: string
@@ -26,9 +28,9 @@ function escapeHtml(s: string) {
 }
 
 /**
- * Abre una ventana lista para imprimir / compartir la gift card.
+ * Abre una ventana lista para imprimir / compartir la gift card (incluye QR).
  */
-export function printGiftCard(
+export async function printGiftCard(
   gift: PrintableGiftCard,
   business?: { name?: string },
 ) {
@@ -48,6 +50,9 @@ export function printGiftCard(
         year: 'numeric',
       })
     : null
+
+  const qrSrc = await toGiftCardQrDataUrl(gift.code, 200)
+  const qrPayload = escapeHtml(giftCardQrPayload(gift.code))
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -142,7 +147,7 @@ export function printGiftCard(
     }
     .code {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 600;
       letter-spacing: 0.12em;
       margin: 0;
@@ -152,6 +157,26 @@ export function printGiftCard(
       font-size: 12px;
       opacity: 0.8;
       margin: 0;
+    }
+    .qr-box {
+      background: #fff;
+      border-radius: 14px;
+      padding: 8px;
+      line-height: 0;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    }
+    .qr-box img {
+      width: 112px;
+      height: 112px;
+      display: block;
+    }
+    .qr-hint {
+      margin: 8px 0 0;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      opacity: 0.75;
+      text-align: center;
     }
     .actions {
       margin-top: 18px;
@@ -188,10 +213,16 @@ export function printGiftCard(
         <div>
           <p class="code-label">Código</p>
           <p class="code">${code}</p>
+          <p class="meta" style="text-align:left;margin-top:10px">
+            ${expires ? `Válida hasta ${escapeHtml(expires)}` : 'Sin vencimiento'}
+          </p>
         </div>
-        <p class="meta">
-          ${expires ? `Válida hasta ${escapeHtml(expires)}` : 'Sin vencimiento'}
-        </p>
+        <div>
+          <div class="qr-box">
+            <img src="${qrSrc}" alt="QR ${code}" data-payload="${qrPayload}" />
+          </div>
+          <p class="qr-hint">Escanear para canjear</p>
+        </div>
       </div>
     </article>
     <div class="actions">
